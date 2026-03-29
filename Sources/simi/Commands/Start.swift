@@ -40,7 +40,7 @@ struct Start: ParsableCommand {
 
         // 2. Create or reuse simulator (CLI flags override .simi.json)
         let deviceType = device ?? config.deviceType ?? "iPhone 17 Pro"
-        let runtime = self.runtime ?? config.runtime ?? "iOS 26.3"
+        let runtime = self.runtime ?? config.runtime ?? "iOS 26.4"
         print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtime))...")
         let (udid, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtime)
         print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")

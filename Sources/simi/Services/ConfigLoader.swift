@@ -20,7 +20,7 @@ enum ConfigLoader {
     static func loadConfigWithDefaults(repoRoot: String) throws -> RepoConfig {
         var config = try RepoConfig.load(from: repoRoot) ?? RepoConfig()
         if config.deviceType == nil { config.deviceType = "iPhone 17 Pro" }
-        if config.runtime == nil { config.runtime = "iOS 26.3" }
+        if config.runtime == nil { config.runtime = "iOS 26.4" }
         return config
     }
 }
