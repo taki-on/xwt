@@ -23,16 +23,33 @@ enum ShellRunner {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = arguments
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         try process.run()
+
+        // Read pipes concurrently to avoid deadlock when output exceeds pipe buffer
+        var outData = Data()
+        var errData = Data()
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global().async {
+            outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
+        group.enter()
+        DispatchQueue.global().async {
+            errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
+        group.wait()
         process.waitUntilExit()
 
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
         let outString = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let errString = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -42,10 +59,6 @@ enum ShellRunner {
                 exitCode: process.terminationStatus,
                 stderr: errString
             )
-        }
-
-        if !quiet && !outString.isEmpty {
-            // Caller can choose to print or not
         }
 
         return outString

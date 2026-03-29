@@ -68,7 +68,7 @@ Creates a full isolated environment for a branch:
 | Option | Description | Default |
 |---|---|---|
 | `--device <type>` | Simulator device type | `iPhone 17 Pro` |
-| `--runtime <version>` | iOS runtime version | `iOS 26.3` |
+| `--runtime <version>` | iOS runtime version | `iOS 26.4` |
 | `--no-boot` | Skip booting the simulator | `false` |
 
 ### `simi list`

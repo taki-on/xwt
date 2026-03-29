@@ -22,6 +22,13 @@ struct List: ParsableCommand {
             return
         }
 
+        // Fetch simulator state once for all tasks
+        let allDevices = try SimulatorService.fetchAllDevices()
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+
         var totalTasks = 0
 
         for repoName in repos.sorted() {
@@ -34,15 +41,12 @@ struct List: ParsableCommand {
 
             for task in tasks.sorted(by: { $0.createdAt < $1.createdAt }) {
                 let bootedStatus: String
-                if let info = try? SimulatorService.findByUDID(task.simulatorUDID) {
+                if let info = SimulatorService.findByUDID(task.simulatorUDID, in: allDevices) {
                     bootedStatus = info.isBooted ? "🟢 Booted" : "⚪ Shutdown"
                 } else {
                     bootedStatus = "❌ Not found"
                 }
 
-                let formatter = DateFormatter()
-                formatter.dateStyle = .short
-                formatter.timeStyle = .short
                 let dateStr = formatter.string(from: task.createdAt)
 
                 print("  \(task.branch)")

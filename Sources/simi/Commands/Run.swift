@@ -42,13 +42,8 @@ struct Run: ParsableCommand {
             "-scheme", buildScheme,
             "-destination", "id=\(task.simulatorUDID)",
             "-derivedDataPath", task.derivedDataPath,
+            "build",
         ]
-
-        if buildOnly {
-            args += ["build"]
-        } else {
-            args += ["build"]
-        }
 
         print("🔨 Building \(buildScheme) for simulator \(task.simulatorName)...")
         print("   DerivedData: \(task.derivedDataPath)")
@@ -57,8 +52,48 @@ struct Run: ParsableCommand {
 
         try ShellRunner.exec(args)
 
-        if !buildOnly {
+        if buildOnly {
             print("\n✅ Build succeeded.")
+            return
         }
+
+        // Find, install, and launch the built app
+        let appPath = try Run.findBuiltApp(derivedDataPath: task.derivedDataPath)
+        let bundleID = try Run.readBundleID(appPath: appPath)
+
+        print("\n📲 Installing \(bundleID) on \(task.simulatorName)...")
+        try SimulatorService.install(udid: task.simulatorUDID, appPath: appPath)
+
+        print("🚀 Launching \(bundleID)...")
+        try SimulatorService.launch(udid: task.simulatorUDID, bundleID: bundleID)
+
+        print("✅ Build, install, and launch succeeded.")
+    }
+
+    // MARK: - Helpers
+
+    /// Find the .app bundle built for the simulator in DerivedData.
+    private static func findBuiltApp(derivedDataPath: String) throws -> String {
+        let productsDir = "\(derivedDataPath)/Build/Products"
+        let output = try ShellRunner.run("find", productsDir, "-name", "*.app", "-type", "d", "-maxdepth", "3")
+        let apps = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+        // Prefer simulator builds
+        if let simApp = apps.first(where: { $0.contains("-iphonesimulator") }) {
+            return simApp
+        }
+        guard let app = apps.first else {
+            print("❌ No .app bundle found in \(productsDir).")
+            throw ExitCode.failure
+        }
+        return app
+    }
+
+    /// Read CFBundleIdentifier from an app's Info.plist.
+    private static func readBundleID(appPath: String) throws -> String {
+        try ShellRunner.run(
+            "/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier",
+            "\(appPath)/Info.plist"
+        )
     }
 }

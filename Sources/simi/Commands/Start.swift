@@ -24,9 +24,14 @@ struct Start: ParsableCommand {
         let slug = BranchSlug.slugify(branch)
         let config = try ConfigLoader.loadConfigWithDefaults(repoRoot: repoRoot)
 
-        // Check for existing task
+        // Check for existing task (with slug collision detection)
         if let existing = try StateManager.find(repo: repo, branchOrSlug: branch) {
-            print("⚠ Task already exists for '\(existing.branch)'. Use 'simi remove \(branch)' first.")
+            if existing.branch == branch {
+                print("⚠ Task already exists for '\(existing.branch)'. Use 'simi remove \(branch)' first.")
+            } else {
+                print("⚠ Branch '\(branch)' conflicts with existing task for '\(existing.branch)' (both resolve to slug '\(slug)').")
+                print("  Remove the existing task first: 'simi remove \(existing.branch)'")
+            }
             throw ExitCode.failure
         }
 
@@ -34,52 +39,106 @@ struct Start: ParsableCommand {
         let derivedDataPath = Paths.derivedDataPath(slug: slug).path
         let simName = "simi-\(slug)"
 
-        // 1. Create worktree
-        print("📂 Creating worktree at \(worktreePath)...")
-        try WorktreeService.add(repoRoot: repoRoot, branch: branch, path: worktreePath)
+        // Track created resources for rollback on failure
+        var createdWorktree = false
+        var createdSimulatorUDID: String?
 
-        // 2. Create or reuse simulator (CLI flags override .simi.json)
-        let deviceType = device ?? config.deviceType ?? "iPhone 17 Pro"
-        let runtime = self.runtime ?? config.runtime ?? "iOS 26.4"
-        print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtime))...")
-        let (udid, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtime)
-        print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
+        do {
+            // 1. Create worktree
+            print("📂 Creating worktree at \(worktreePath)...")
+            try WorktreeService.add(repoRoot: repoRoot, branch: branch, path: worktreePath)
+            createdWorktree = true
 
-        // 3. Boot simulator
-        if !noBoot {
-            print("🚀 Booting simulator...")
-            try SimulatorService.boot(udid: udid)
+            // 2. Create or reuse simulator (CLI flags override .simi.json)
+            let deviceType = device ?? config.deviceType ?? "iPhone 17 Pro"
+            let runtimeStr = self.runtime ?? config.runtime ?? "iOS 26.4"
+            print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
+            let (udid, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
+            if !reused { createdSimulatorUDID = udid }
+            print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
+
+            // 3. Boot simulator
+            if !noBoot {
+                print("🚀 Booting simulator...")
+                try SimulatorService.boot(udid: udid)
+            }
+
+            // 4. Create derived data directory
+            try FileManager.default.createDirectory(atPath: derivedDataPath, withIntermediateDirectories: true)
+
+            // 5. Save task state
+            let task = TaskState(
+                repo: repo,
+                branch: branch,
+                slug: slug,
+                worktreePath: worktreePath,
+                simulatorName: simName,
+                simulatorUDID: udid,
+                derivedDataPath: derivedDataPath,
+                scheme: config.scheme,
+                workspace: config.workspace,
+                project: config.project,
+                createdAt: Date()
+            )
+            try StateManager.save(task)
+
+            // 6. Write .simi-context
+            try StateManager.writeSimiContext(task)
+
+            // 7. Exclude .simi-context from git tracking
+            excludeSimiContext(repoRoot: repoRoot)
+
+            print("✅ Task started: \(branch)")
+            print("   Worktree:     \(worktreePath)")
+            print("   Simulator:    \(simName) (\(udid))")
+            print("   DerivedData:  \(derivedDataPath)")
+            print("")
+            print("   cd \(worktreePath)")
+            print("   source .simi-context")
+            print("")
+            print("   In Copilot CLI, say: \"configure XcodeBuildMCP from .simi-context\"")
+        } catch {
+            // Rollback on failure
+            print("\n⚠ Task setup failed, rolling back...")
+            if let simUDID = createdSimulatorUDID {
+                try? SimulatorService.shutdown(udid: simUDID)
+                try? SimulatorService.delete(udid: simUDID)
+            }
+            if createdWorktree {
+                try? WorktreeService.remove(repoRoot: repoRoot, path: worktreePath)
+            }
+            try? FileManager.default.removeItem(atPath: derivedDataPath)
+            throw error
         }
+    }
 
-        // 4. Create derived data directory
-        try FileManager.default.createDirectory(atPath: derivedDataPath, withIntermediateDirectories: true)
+    /// Add `.simi-context` to the repo's `.git/info/exclude` so it is never tracked.
+    private func excludeSimiContext(repoRoot: String) {
+        let excludeURL = URL(fileURLWithPath: repoRoot)
+            .appendingPathComponent(".git/info/exclude")
 
-        // 5. Save task state
-        let task = TaskState(
-            repo: repo,
-            branch: branch,
-            slug: slug,
-            worktreePath: worktreePath,
-            simulatorName: simName,
-            simulatorUDID: udid,
-            derivedDataPath: derivedDataPath,
-            scheme: config.scheme,
-            workspace: config.workspace,
-            project: config.project,
-            createdAt: Date()
-        )
-        try StateManager.save(task)
+        do {
+            try FileManager.default.createDirectory(
+                at: excludeURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
 
-        // 6. Write .simi-context
-        try StateManager.writeSimiContext(task)
-        print("✅ Task started: \(branch)")
-        print("   Worktree:     \(worktreePath)")
-        print("   Simulator:    \(simName) (\(udid))")
-        print("   DerivedData:  \(derivedDataPath)")
-        print("")
-        print("   cd \(worktreePath)")
-        print("   source .simi-context")
-        print("")
-        print("   In Copilot CLI, say: \"configure XcodeBuildMCP from .simi-context\"")
+            var content = ""
+            if FileManager.default.fileExists(atPath: excludeURL.path) {
+                content = try String(contentsOf: excludeURL, encoding: .utf8)
+            }
+
+            let pattern = ".simi-context"
+            guard !content.components(separatedBy: .newlines).contains(pattern) else { return }
+
+            if !content.isEmpty && !content.hasSuffix("\n") {
+                content += "\n"
+            }
+            content += pattern + "\n"
+
+            try content.write(to: excludeURL, atomically: true, encoding: .utf8)
+        } catch {
+            print("   ⚠ Could not update .git/info/exclude: \(error.localizedDescription)")
+        }
     }
 }

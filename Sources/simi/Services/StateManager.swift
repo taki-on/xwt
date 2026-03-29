@@ -49,11 +49,16 @@ enum StateManager {
         let dir = Paths.repoStateDir(repo: repo)
         guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-        return try files
+        return files
             .filter { $0.pathExtension == "json" }
             .compactMap { url in
-                let data = try Data(contentsOf: url)
-                return try? decoder.decode(TaskState.self, from: data)
+                do {
+                    let data = try Data(contentsOf: url)
+                    return try decoder.decode(TaskState.self, from: data)
+                } catch {
+                    print("⚠ Skipping corrupt task state \(url.lastPathComponent): \(error.localizedDescription)")
+                    return nil
+                }
             }
     }
 

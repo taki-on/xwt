@@ -45,25 +45,46 @@ struct Remove: ParsableCommand {
         print("📱 Shutting down simulator...")
         try SimulatorService.shutdown(udid: task.simulatorUDID)
 
+        var warnings: [String] = []
+
         // 2. Optionally delete simulator
         if deleteSimulator {
             print("🗑  Deleting simulator...")
-            try? SimulatorService.delete(udid: task.simulatorUDID)
+            do {
+                try SimulatorService.delete(udid: task.simulatorUDID)
+            } catch {
+                warnings.append("Could not delete simulator \(task.simulatorUDID): \(error)")
+            }
         }
 
         // 3. Remove worktree
         print("📂 Removing worktree...")
-        try? WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
+        do {
+            try WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
+        } catch {
+            warnings.append("Could not remove worktree at \(task.worktreePath): \(error)")
+        }
 
         // 4. Clean derived data
         if cleanDerivedData {
             print("🧹 Cleaning derived data...")
-            try? FileManager.default.removeItem(atPath: task.derivedDataPath)
+            do {
+                try FileManager.default.removeItem(atPath: task.derivedDataPath)
+            } catch {
+                warnings.append("Could not remove derived data at \(task.derivedDataPath): \(error)")
+            }
         }
 
         // 5. Remove state file
         try StateManager.delete(repo: repo, slug: task.slug)
 
-        print("✅ Task '\(task.branch)' removed.")
+        if warnings.isEmpty {
+            print("✅ Task '\(task.branch)' removed.")
+        } else {
+            print("⚠ Task '\(task.branch)' removed with warnings:")
+            for warning in warnings {
+                print("  • \(warning)")
+            }
+        }
     }
 }
