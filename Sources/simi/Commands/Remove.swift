@@ -1,0 +1,69 @@
+import ArgumentParser
+import Foundation
+
+struct Remove: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Remove a task: shutdown/delete simulator, remove worktree, clean up state."
+    )
+
+    @Argument(help: "Branch name or slug.")
+    var branch: String
+
+    @Flag(name: .long, help: "Also delete the simulator device (default: only shutdown).")
+    var deleteSimulator = false
+
+    @Flag(name: .long, help: "Also remove derived data.")
+    var cleanDerivedData = false
+
+    @Flag(name: .shortAndLong, help: "Skip confirmation prompt.")
+    var force = false
+
+    func run() throws {
+        let repoRoot = try ConfigLoader.detectRepoRoot()
+        let repo = ConfigLoader.repoName(from: repoRoot)
+
+        guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
+            print("❌ No task found for '\(branch)'.")
+            throw ExitCode.failure
+        }
+
+        if !force {
+            print("About to remove task for '\(task.branch)':")
+            print("  Worktree:    \(task.worktreePath)")
+            print("  Simulator:   \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…)")
+            if deleteSimulator { print("  ⚠ Will DELETE simulator") }
+            if cleanDerivedData { print("  ⚠ Will remove derived data at \(task.derivedDataPath)") }
+            print()
+            print("Continue? [y/N] ", terminator: "")
+            guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+                print("Cancelled.")
+                return
+            }
+        }
+
+        // 1. Shutdown simulator
+        print("📱 Shutting down simulator...")
+        try SimulatorService.shutdown(udid: task.simulatorUDID)
+
+        // 2. Optionally delete simulator
+        if deleteSimulator {
+            print("🗑  Deleting simulator...")
+            try? SimulatorService.delete(udid: task.simulatorUDID)
+        }
+
+        // 3. Remove worktree
+        print("📂 Removing worktree...")
+        try? WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
+
+        // 4. Clean derived data
+        if cleanDerivedData {
+            print("🧹 Cleaning derived data...")
+            try? FileManager.default.removeItem(atPath: task.derivedDataPath)
+        }
+
+        // 5. Remove state file
+        try StateManager.delete(repo: repo, slug: task.slug)
+
+        print("✅ Task '\(task.branch)' removed.")
+    }
+}
