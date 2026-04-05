@@ -21,6 +21,14 @@ enum Paths {
         home.appendingPathComponent("worktrees").appendingPathComponent(repo).appendingPathComponent(slug)
     }
 
+    /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/Keychains/`
+    static func simulatorKeychainDir(udid: String) -> URL {
+        home
+            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
+            .appendingPathComponent(udid)
+            .appendingPathComponent("data/Library/Keychains")
+    }
+
     /// `~/Library/Developer/Xcode/DerivedData/simi/<slug>/`
     static func derivedDataPath(slug: String) -> URL {
         home

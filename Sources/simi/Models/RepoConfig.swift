@@ -7,6 +7,7 @@ struct RepoConfig: Codable {
     var scheme: String?
     var deviceType: String?
     var runtime: String?
+    var sourceSimulator: String?
 
     static let fileName = ".simi.json"
 

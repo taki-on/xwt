@@ -69,6 +69,8 @@ Creates a full isolated environment for a branch:
 |---|---|---|
 | `--device <type>` | Simulator device type | `iPhone 17 Pro` |
 | `--runtime <version>` | iOS runtime version | `iOS 26.4` |
+| `--copy-auth-from <sim>` | Copy keychain from this simulator (name or UDID) to skip re-login | — |
+| `--no-copy-auth` | Skip keychain copy even when `sourceSimulator` is configured | `false` |
 | `--no-boot` | Skip booting the simulator | `false` |
 
 ### `simi list`
@@ -115,7 +117,23 @@ Create a `.simi.json` file in your repository root to set project defaults:
 }
 ```
 
-Supported fields: `workspace`, `project`, `scheme`, `deviceType`, `runtime`.
+Supported fields: `workspace`, `project`, `scheme`, `deviceType`, `runtime`, `sourceSimulator`.
+
+### Auth / Keychain Copy
+
+When you log in to your app on a simulator, the auth tokens are stored in the simulator's keychain. New simulators created by `simi start` don't have these tokens, requiring a fresh login each time.
+
+To skip re-authentication, set `sourceSimulator` in your `.simi.json` to the name (or UDID) of a simulator that is already logged in:
+
+```json
+{
+  "workspace": "MyApp.xcworkspace",
+  "scheme": "MyApp",
+  "sourceSimulator": "iPhone 17 Pro"
+}
+```
+
+Now every `simi start` will automatically copy the keychain from that simulator to the new one. Use `--no-copy-auth` to skip the copy, or `--copy-auth-from <name-or-udid>` to override the source on a per-invocation basis.
 
 ## File Layout
 

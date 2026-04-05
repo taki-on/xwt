@@ -18,6 +18,12 @@ struct Start: ParsableCommand {
     @Flag(name: .long, help: "Don't boot the simulator after creating it.")
     var noBoot = false
 
+    @Option(name: .long, help: "Copy keychain from this simulator (name or UDID) to skip re-login.")
+    var copyAuthFrom: String?
+
+    @Flag(name: .long, help: "Skip keychain copy even when sourceSimulator is configured in .simi.json.")
+    var noCopyAuth = false
+
     func run() throws {
         let repoRoot = try ConfigLoader.detectRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
@@ -57,16 +63,24 @@ struct Start: ParsableCommand {
             if !reused { createdSimulatorUDID = udid }
             print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
 
-            // 3. Boot simulator
+            // 3. Copy keychain from source simulator (before boot)
+            if !noCopyAuth {
+                let sourceID = copyAuthFrom ?? config.sourceSimulator
+                if let sourceID = sourceID {
+                    copyKeychain(from: sourceID, to: udid)
+                }
+            }
+
+            // 4. Boot simulator
             if !noBoot {
                 print("🚀 Booting simulator...")
                 try SimulatorService.boot(udid: udid)
             }
 
-            // 4. Create derived data directory
+            // 5. Create derived data directory
             try FileManager.default.createDirectory(atPath: derivedDataPath, withIntermediateDirectories: true)
 
-            // 5. Save task state
+            // 6. Save task state
             let task = TaskState(
                 repo: repo,
                 branch: branch,
@@ -82,10 +96,10 @@ struct Start: ParsableCommand {
             )
             try StateManager.save(task)
 
-            // 6. Write .simi-context
+            // 7. Write .simi-context
             try StateManager.writeSimiContext(task)
 
-            // 7. Exclude .simi-context from git tracking
+            // 8. Exclude .simi-context from git tracking
             excludeSimiContext(repoRoot: repoRoot)
 
             print("✅ Task started: \(branch)")
@@ -109,6 +123,35 @@ struct Start: ParsableCommand {
             }
             try? FileManager.default.removeItem(atPath: derivedDataPath)
             throw error
+        }
+    }
+
+    /// Copy keychain from a source simulator to the target. Non-fatal on failure.
+    private func copyKeychain(from sourceID: String, to targetUDID: String) {
+        do {
+            let source = try SimulatorService.resolve(sourceID)
+            print("🔑 Copying keychain from '\(source.name)' (\(source.udid))...")
+
+            // If source is booted, shut it down to flush WAL, then reboot after copy
+            let wasBooted = source.isBooted
+            if wasBooted {
+                print("   ↳ Shutting down source simulator to flush keychain...")
+                try SimulatorService.shutdown(udid: source.udid)
+                // Brief pause for WAL checkpoint
+                Thread.sleep(forTimeInterval: 1)
+            }
+
+            try SimulatorService.copyKeychain(from: source.udid, to: targetUDID)
+
+            if wasBooted {
+                print("   ↳ Rebooting source simulator...")
+                try SimulatorService.boot(udid: source.udid)
+            }
+
+            print("   ↳ Keychain copied successfully")
+        } catch {
+            print("   ⚠ Could not copy keychain: \(error)")
+            print("   ↳ You may need to log in manually on the new simulator.")
         }
     }
 

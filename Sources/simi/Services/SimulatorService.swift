@@ -10,6 +10,20 @@ struct SimulatorInfo {
     var isBooted: Bool { state == "Booted" }
 }
 
+enum SimulatorServiceError: Error, CustomStringConvertible {
+    case notFound(String)
+    case keychainNotFound(String)
+
+    var description: String {
+        switch self {
+        case .notFound(let id):
+            return "Simulator not found: '\(id)'"
+        case .keychainNotFound(let udid):
+            return "No keychain database found for simulator \(udid)"
+        }
+    }
+}
+
 enum SimulatorService {
     // MARK: - Decodable helpers
 
@@ -121,6 +135,45 @@ enum SimulatorService {
     }
 
     // MARK: - Helpers
+
+    /// Resolve a simulator name or UDID to a `SimulatorInfo`.
+    static func resolve(_ nameOrUDID: String) throws -> SimulatorInfo {
+        let devices = try fetchAllDevices()
+        // Try UDID first
+        if let info = devices[nameOrUDID] { return info }
+        // Fall back to name
+        if let info = devices.values.first(where: { $0.name == nameOrUDID }) { return info }
+        throw SimulatorServiceError.notFound(nameOrUDID)
+    }
+
+    /// Copy keychain database from one simulator to another.
+    /// Both simulators should be shut down to avoid SQLite WAL conflicts.
+    static func copyKeychain(from sourceUDID: String, to targetUDID: String) throws {
+        let sourceDir = Paths.simulatorKeychainDir(udid: sourceUDID)
+        let targetDir = Paths.simulatorKeychainDir(udid: targetUDID)
+        let fm = FileManager.default
+
+        let mainDB = "keychain-2-debug.db"
+        let sourceDB = sourceDir.appendingPathComponent(mainDB)
+
+        guard fm.fileExists(atPath: sourceDB.path) else {
+            throw SimulatorServiceError.keychainNotFound(sourceUDID)
+        }
+
+        // Ensure target directory exists
+        try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+
+        // Copy main DB and WAL/SHM journals if present
+        for file in [mainDB, "\(mainDB)-shm", "\(mainDB)-wal"] {
+            let src = sourceDir.appendingPathComponent(file)
+            let dst = targetDir.appendingPathComponent(file)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            if fm.fileExists(atPath: dst.path) {
+                try fm.removeItem(at: dst)
+            }
+            try fm.copyItem(at: src, to: dst)
+        }
+    }
 
     /// Convert user-friendly runtime like "iOS 18.2" to simctl identifier.
     static func runtimeIdentifier(_ runtime: String) -> String {
