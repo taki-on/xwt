@@ -9,11 +9,11 @@ struct Remove: ParsableCommand {
     @Argument(help: "Branch name or slug.")
     var branch: String
 
-    @Flag(name: .long, help: "Also delete the simulator device (default: only shutdown).")
-    var deleteSimulator = false
+    @Flag(name: .long, help: "Keep the simulator device instead of deleting it.")
+    var keepSimulator = false
 
-    @Flag(name: .long, help: "Also remove derived data.")
-    var cleanDerivedData = false
+    @Flag(name: .long, help: "Keep derived data instead of removing it.")
+    var keepDerivedData = false
 
     @Flag(name: .shortAndLong, help: "Skip confirmation prompt.")
     var force = false
@@ -31,8 +31,10 @@ struct Remove: ParsableCommand {
             print("About to remove task for '\(task.branch)':")
             print("  Worktree:    \(task.worktreePath)")
             print("  Simulator:   \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…)")
-            if deleteSimulator { print("  ⚠ Will DELETE simulator") }
-            if cleanDerivedData { print("  ⚠ Will remove derived data at \(task.derivedDataPath)") }
+            if !keepSimulator { print("  🗑 Will DELETE simulator") }
+            if !keepDerivedData { print("  🧹 Will remove derived data at \(task.derivedDataPath)") }
+            if keepSimulator { print("  ℹ Will only shutdown simulator (--keep-simulator)") }
+            if keepDerivedData { print("  ℹ Will keep derived data (--keep-derived-data)") }
             print()
             print("Continue? [y/N] ", terminator: "")
             guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
@@ -47,8 +49,8 @@ struct Remove: ParsableCommand {
 
         var warnings: [String] = []
 
-        // 2. Optionally delete simulator
-        if deleteSimulator {
+        // 2. Delete simulator (default) or keep it
+        if !keepSimulator {
             print("🗑  Deleting simulator...")
             do {
                 try SimulatorService.delete(udid: task.simulatorUDID)
@@ -65,8 +67,8 @@ struct Remove: ParsableCommand {
             warnings.append("Could not remove worktree at \(task.worktreePath): \(error)")
         }
 
-        // 4. Clean derived data
-        if cleanDerivedData {
+        // 4. Clean derived data (default) or keep it
+        if !keepDerivedData {
             print("🧹 Cleaning derived data...")
             do {
                 try FileManager.default.removeItem(atPath: task.derivedDataPath)
