@@ -3,7 +3,7 @@ import Foundation
 
 struct Start: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Start a new task: create worktree, assign simulator, generate .simi-context."
+        abstract: "Start a new task: create worktree, assign simulator, configure Copilot."
     )
 
     @Argument(help: "Branch name (e.g. feature/login-refactor).")
@@ -96,11 +96,11 @@ struct Start: ParsableCommand {
             )
             try StateManager.save(task)
 
-            // 7. Write .simi-context
-            try StateManager.writeSimiContext(task)
+            // 7. Write Copilot instructions for XcodeBuildMCP auto-setup
+            try StateManager.writeCopilotInstructions(task)
 
-            // 8. Exclude .simi-context from git tracking
-            excludeSimiContext(repoRoot: repoRoot)
+            // 8. Exclude generated files from git tracking in the worktree
+            excludeFromGit(worktreePath: worktreePath)
 
             print("✅ Task started: \(branch)")
             print("   Worktree:     \(worktreePath)")
@@ -108,9 +108,6 @@ struct Start: ParsableCommand {
             print("   DerivedData:  \(derivedDataPath)")
             print("")
             print("   cd \(worktreePath)")
-            print("   source .simi-context")
-            print("")
-            print("   In Copilot CLI, say: \"configure XcodeBuildMCP from .simi-context\"")
         } catch {
             // Rollback on failure
             print("\n⚠ Task setup failed, rolling back...")
@@ -155,10 +152,17 @@ struct Start: ParsableCommand {
         }
     }
 
-    /// Add `.simi-context` to the repo's `.git/info/exclude` so it is never tracked.
-    private func excludeSimiContext(repoRoot: String) {
-        let excludeURL = URL(fileURLWithPath: repoRoot)
-            .appendingPathComponent(".git/info/exclude")
+    /// Add simi-generated files to the repo's `.git/info/exclude` so they are never tracked.
+    private func excludeFromGit(worktreePath: String) {
+        guard let commonDir = try? ShellRunner.run("git", "-C", worktreePath, "rev-parse", "--git-common-dir") else {
+            print("   ⚠ Could not resolve git common dir")
+            return
+        }
+        let excludeURL = URL(fileURLWithPath: commonDir).appendingPathComponent("info/exclude")
+
+        let patterns = [
+            ".github/instructions/simi.instructions.md",
+        ]
 
         do {
             try FileManager.default.createDirectory(
@@ -171,13 +175,14 @@ struct Start: ParsableCommand {
                 content = try String(contentsOf: excludeURL, encoding: .utf8)
             }
 
-            let pattern = ".simi-context"
-            guard !content.components(separatedBy: .newlines).contains(pattern) else { return }
+            let existingLines = Set(content.components(separatedBy: .newlines))
+            let newPatterns = patterns.filter { !existingLines.contains($0) }
+            guard !newPatterns.isEmpty else { return }
 
             if !content.isEmpty && !content.hasSuffix("\n") {
                 content += "\n"
             }
-            content += pattern + "\n"
+            content += newPatterns.joined(separator: "\n") + "\n"
 
             try content.write(to: excludeURL, atomically: true, encoding: .utf8)
         } catch {

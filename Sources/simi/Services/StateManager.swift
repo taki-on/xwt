@@ -82,10 +82,13 @@ enum StateManager {
         }
     }
 
-    // MARK: - .simi-context
+    // MARK: - Copilot Instructions
 
-    static func writeSimiContext(_ task: TaskState) throws {
-        let contextPath = URL(fileURLWithPath: task.worktreePath).appendingPathComponent(".simi-context")
-        try task.simiContextContent().write(to: contextPath, atomically: true, encoding: .utf8)
+    static func writeCopilotInstructions(_ task: TaskState) throws {
+        let dir = URL(fileURLWithPath: task.worktreePath)
+            .appendingPathComponent(".github/instructions")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filePath = dir.appendingPathComponent("simi.instructions.md")
+        try task.copilotInstructionsContent().write(to: filePath, atomically: true, encoding: .utf8)
     }
 }
