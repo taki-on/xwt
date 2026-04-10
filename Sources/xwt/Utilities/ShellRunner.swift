@@ -13,12 +13,12 @@ enum ShellError: Error, CustomStringConvertible {
 
 enum ShellRunner {
     @discardableResult
-    static func run(_ arguments: String..., quiet: Bool = false) throws -> String {
-        try run(arguments, quiet: quiet)
+    static func run(_ arguments: String...) throws -> String {
+        try run(arguments)
     }
 
     @discardableResult
-    static func run(_ arguments: [String], quiet: Bool = false) throws -> String {
+    static func run(_ arguments: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = arguments

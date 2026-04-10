@@ -56,8 +56,9 @@ struct Start: ParsableCommand {
             createdWorktree = true
 
             // 2. Create or reuse simulator (CLI flags override .xwt.json)
-            let deviceType = device ?? config.deviceType ?? "iPhone 17 Pro"
-            let runtimeStr = self.runtime ?? config.runtime ?? "iOS 26.4"
+            // loadConfigWithDefaults guarantees deviceType and runtime are non-nil
+            let deviceType = device ?? config.deviceType!
+            let runtimeStr = self.runtime ?? config.runtime!
             print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
             let (udid, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
             if !reused { createdSimulatorUDID = udid }
@@ -111,6 +112,7 @@ struct Start: ParsableCommand {
         } catch {
             // Rollback on failure
             print("\n⚠ Task setup failed, rolling back...")
+            try? StateManager.delete(repo: repo, slug: slug)
             if let simUDID = createdSimulatorUDID {
                 try? SimulatorService.shutdown(udid: simUDID)
                 try? SimulatorService.delete(udid: simUDID)

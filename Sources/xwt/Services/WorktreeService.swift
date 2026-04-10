@@ -10,7 +10,7 @@ enum WorktreeService {
         // Check if branch exists
         let branchExists: Bool
         do {
-            try ShellRunner.run("git", "-C", repoRoot, "rev-parse", "--verify", branch, quiet: true)
+            try ShellRunner.run("git", "-C", repoRoot, "rev-parse", "--verify", branch)
             branchExists = true
         } catch {
             branchExists = false
@@ -28,8 +28,12 @@ enum WorktreeService {
         do {
             try ShellRunner.run("git", "-C", repoRoot, "worktree", "remove", "--force", path)
         } catch {
-            // If worktree is already gone, just prune
-            try ShellRunner.run("git", "-C", repoRoot, "worktree", "prune")
+            // If the directory is already gone, prune stale metadata and move on
+            if !FileManager.default.fileExists(atPath: path) {
+                try ShellRunner.run("git", "-C", repoRoot, "worktree", "prune")
+            } else {
+                throw error
+            }
         }
     }
 }
