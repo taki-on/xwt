@@ -3,15 +3,15 @@ import Foundation
 enum Paths {
     static let home = FileManager.default.homeDirectoryForCurrentUser
 
-    /// `~/.simi/`
-    static var simiRoot: URL { home.appendingPathComponent(".simi") }
+    /// `~/.xwt/`
+    static var xwtRoot: URL { home.appendingPathComponent(".xwt") }
 
-    /// `~/.simi/repos/<repo>/`
+    /// `~/.xwt/repos/<repo>/`
     static func repoStateDir(repo: String) -> URL {
-        simiRoot.appendingPathComponent("repos").appendingPathComponent(repo)
+        xwtRoot.appendingPathComponent("repos").appendingPathComponent(repo)
     }
 
-    /// `~/.simi/repos/<repo>/<slug>.json`
+    /// `~/.xwt/repos/<repo>/<slug>.json`
     static func taskStatePath(repo: String, slug: String) -> URL {
         repoStateDir(repo: repo).appendingPathComponent("\(slug).json")
     }
@@ -29,11 +29,11 @@ enum Paths {
             .appendingPathComponent("data/Library/Keychains")
     }
 
-    /// `~/Library/Developer/Xcode/DerivedData/simi/<slug>/`
+    /// `~/Library/Developer/Xcode/DerivedData/xwt/<slug>/`
     static func derivedDataPath(slug: String) -> URL {
         home
             .appendingPathComponent("Library/Developer/Xcode/DerivedData")
-            .appendingPathComponent("simi")
+            .appendingPathComponent("xwt")
             .appendingPathComponent(slug)
     }
 }

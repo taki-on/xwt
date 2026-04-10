@@ -9,10 +9,10 @@ struct Start: ParsableCommand {
     @Argument(help: "Branch name (e.g. feature/login-refactor).")
     var branch: String
 
-    @Option(name: .shortAndLong, help: "Device type (e.g. 'iPhone 16 Pro Max'). Overrides .simi.json.")
+    @Option(name: .shortAndLong, help: "Device type (e.g. 'iPhone 16 Pro Max'). Overrides .xwt.json.")
     var device: String?
 
-    @Option(name: .shortAndLong, help: "iOS runtime (e.g. 'iOS 18.0'). Overrides .simi.json.")
+    @Option(name: .shortAndLong, help: "iOS runtime (e.g. 'iOS 18.0'). Overrides .xwt.json.")
     var runtime: String?
 
     @Flag(name: .long, help: "Don't boot the simulator after creating it.")
@@ -21,7 +21,7 @@ struct Start: ParsableCommand {
     @Option(name: .long, help: "Copy keychain from this simulator (name or UDID) to skip re-login.")
     var copyAuthFrom: String?
 
-    @Flag(name: .long, help: "Skip keychain copy even when sourceSimulator is configured in .simi.json.")
+    @Flag(name: .long, help: "Skip keychain copy even when sourceSimulator is configured in .xwt.json.")
     var noCopyAuth = false
 
     func run() throws {
@@ -33,17 +33,17 @@ struct Start: ParsableCommand {
         // Check for existing task (with slug collision detection)
         if let existing = try StateManager.find(repo: repo, branchOrSlug: branch) {
             if existing.branch == branch {
-                print("⚠ Task already exists for '\(existing.branch)'. Use 'simi remove \(branch)' first.")
+                print("⚠ Task already exists for '\(existing.branch)'. Use 'xwt remove \(branch)' first.")
             } else {
                 print("⚠ Branch '\(branch)' conflicts with existing task for '\(existing.branch)' (both resolve to slug '\(slug)').")
-                print("  Remove the existing task first: 'simi remove \(existing.branch)'")
+                print("  Remove the existing task first: 'xwt remove \(existing.branch)'")
             }
             throw ExitCode.failure
         }
 
         let worktreePath = Paths.worktreePath(repo: repo, slug: slug).path
         let derivedDataPath = Paths.derivedDataPath(slug: slug).path
-        let simName = "simi-\(slug)"
+        let simName = "xwt-\(slug)"
 
         // Track created resources for rollback on failure
         var createdWorktree = false
@@ -55,7 +55,7 @@ struct Start: ParsableCommand {
             try WorktreeService.add(repoRoot: repoRoot, branch: branch, path: worktreePath)
             createdWorktree = true
 
-            // 2. Create or reuse simulator (CLI flags override .simi.json)
+            // 2. Create or reuse simulator (CLI flags override .xwt.json)
             let deviceType = device ?? config.deviceType ?? "iPhone 17 Pro"
             let runtimeStr = self.runtime ?? config.runtime ?? "iOS 26.4"
             print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
@@ -152,7 +152,7 @@ struct Start: ParsableCommand {
         }
     }
 
-    /// Add simi-generated files to the repo's `.git/info/exclude` so they are never tracked.
+    /// Add xwt-generated files to the repo's `.git/info/exclude` so they are never tracked.
     private func excludeFromGit(worktreePath: String) {
         guard let commonDir = try? ShellRunner.run("git", "-C", worktreePath, "rev-parse", "--git-common-dir") else {
             print("   ⚠ Could not resolve git common dir")
@@ -161,7 +161,7 @@ struct Start: ParsableCommand {
         let excludeURL = URL(fileURLWithPath: commonDir).appendingPathComponent("info/exclude")
 
         let patterns = [
-            ".github/instructions/simi.instructions.md",
+            ".github/instructions/xwt.instructions.md",
         ]
 
         do {

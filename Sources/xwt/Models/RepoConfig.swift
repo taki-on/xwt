@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-repo config loaded from `.simi.json` in the repository root.
+/// Per-repo config loaded from `.xwt.json` in the repository root.
 struct RepoConfig: Codable {
     var workspace: String?
     var project: String?
@@ -9,7 +9,7 @@ struct RepoConfig: Codable {
     var runtime: String?
     var sourceSimulator: String?
 
-    static let fileName = ".simi.json"
+    static let fileName = ".xwt.json"
 
     static func load(from repoRoot: String) throws -> RepoConfig? {
         let url = URL(fileURLWithPath: repoRoot).appendingPathComponent(Self.fileName)

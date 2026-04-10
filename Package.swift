@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "simi",
+    name: "xwt",
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
     ],
     targets: [
         .executableTarget(
-            name: "simi",
+            name: "xwt",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]

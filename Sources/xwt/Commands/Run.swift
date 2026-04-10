@@ -20,13 +20,13 @@ struct Run: ParsableCommand {
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
-            print("❌ No task found for '\(branch)'. Run 'simi start \(branch)' first.")
+            print("❌ No task found for '\(branch)'. Run 'xwt start \(branch)' first.")
             throw ExitCode.failure
         }
 
         let buildScheme = scheme ?? task.scheme
         guard let buildScheme else {
-            print("❌ No scheme configured. Set 'scheme' in .simi.json or pass --scheme.")
+            print("❌ No scheme configured. Set 'scheme' in .xwt.json or pass --scheme.")
             throw ExitCode.failure
         }
 

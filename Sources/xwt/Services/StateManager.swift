@@ -63,7 +63,7 @@ enum StateManager {
     }
 
     static func listAllRepos() throws -> [String] {
-        let reposDir = Paths.simiRoot.appendingPathComponent("repos")
+        let reposDir = Paths.xwtRoot.appendingPathComponent("repos")
         guard FileManager.default.fileExists(atPath: reposDir.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(atPath: reposDir.path)
             .filter { name in
@@ -88,7 +88,7 @@ enum StateManager {
         let dir = URL(fileURLWithPath: task.worktreePath)
             .appendingPathComponent(".github/instructions")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let filePath = dir.appendingPathComponent("simi.instructions.md")
+        let filePath = dir.appendingPathComponent("xwt.instructions.md")
         try task.copilotInstructionsContent().write(to: filePath, atomically: true, encoding: .utf8)
     }
 }

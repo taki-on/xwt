@@ -1,8 +1,8 @@
-# simi
+# xwt
 
 Orchestrate git worktrees and iOS Simulators for parallel branch development.
 
-`simi` lets you spin up an isolated environment per branch — a git worktree, a dedicated iOS Simulator, and a separate DerivedData directory — so you can work on multiple features simultaneously without conflicts.
+`xwt` lets you spin up an isolated environment per branch — a git worktree, a dedicated iOS Simulator, and a separate DerivedData directory — so you can work on multiple features simultaneously without conflicts.
 
 ## Installation
 
@@ -15,55 +15,54 @@ Orchestrate git worktrees and iOS Simulators for parallel branch development.
 ### Build from source
 
 ```bash
-git clone https://github.com/taki-on/simi.git
-cd simi
+git clone https://github.com/taki-on/xwt.git
+cd xwt
 swift build -c release
 ```
 
-The binary is produced at `.build/release/simi`. You can copy it to your PATH:
+The binary is produced at `.build/release/xwt`. You can copy it to your PATH:
 
 ```bash
-cp .build/release/simi /usr/local/bin/
+cp .build/release/xwt /usr/local/bin/
 ```
 
 ### Run without installing
 
 ```bash
-swift run simi <command>
+swift run xwt <command>
 ```
 
 ## Quick Start
 
 ```bash
 # Start a new task for a feature branch
-simi start feature/login-refactor
+xwt start feature/login-refactor
 
-# cd into the worktree and load environment variables
+# cd into the worktree
 cd ~/worktrees/<repo>/feature-login-refactor
-source .simi-context
 
 # Build and run on the branch's dedicated simulator
-simi run feature/login-refactor --scheme MyApp
+xwt run feature/login-refactor --scheme MyApp
 
 # List all active tasks
-simi list
+xwt list
 
 # Clean up when done
-simi remove feature/login-refactor
+xwt remove feature/login-refactor
 ```
 
 ## Commands
 
-### `simi start <branch>`
+### `xwt start <branch>`
 
 Creates a full isolated environment for a branch:
 
 - Creates a git worktree
-- Creates (or reuses) a simulator named `simi-<slug>`
+- Creates (or reuses) a simulator named `xwt-<slug>`
 - Boots the simulator
 - Creates a dedicated DerivedData directory
-- Saves task state to `~/.simi/`
-- Writes a `.simi-context` file with environment variables
+- Saves task state to `~/.xwt/`
+- Writes Copilot instructions for XcodeBuildMCP auto-setup
 
 | Option | Description | Default |
 |---|---|---|
@@ -73,7 +72,7 @@ Creates a full isolated environment for a branch:
 | `--no-copy-auth` | Skip keychain copy even when `sourceSimulator` is configured | `false` |
 | `--no-boot` | Skip booting the simulator | `false` |
 
-### `simi list`
+### `xwt list`
 
 Lists all active tasks with branch, worktree path, simulator info, and status.
 
@@ -81,11 +80,7 @@ Lists all active tasks with branch, worktree path, simulator info, and status.
 |---|---|
 | `--repo <name>` | Filter by repository name |
 
-### `simi shell <branch>`
-
-Opens an interactive shell session inside the branch's worktree directory.
-
-### `simi run <branch>`
+### `xwt run <branch>`
 
 Builds the project for the branch's assigned simulator using `xcodebuild`.
 
@@ -94,7 +89,7 @@ Builds the project for the branch's assigned simulator using `xcodebuild`.
 | `--scheme <name>` | Override the build scheme |
 | `--build-only` | Build without launching |
 
-### `simi remove <branch>`
+### `xwt remove <branch>`
 
 Removes a task and cleans up its resources.
 
@@ -106,7 +101,7 @@ Removes a task and cleans up its resources.
 
 ## Configuration
 
-Create a `.simi.json` file in your repository root to set project defaults:
+Create a `.xwt.json` file in your repository root to set project defaults:
 
 ```json
 {
@@ -121,9 +116,9 @@ Supported fields: `workspace`, `project`, `scheme`, `deviceType`, `runtime`, `so
 
 ### Auth / Keychain Copy
 
-When you log in to your app on a simulator, the auth tokens are stored in the simulator's keychain. New simulators created by `simi start` don't have these tokens, requiring a fresh login each time.
+When you log in to your app on a simulator, the auth tokens are stored in the simulator's keychain. New simulators created by `xwt start` don't have these tokens, requiring a fresh login each time.
 
-To skip re-authentication, set `sourceSimulator` in your `.simi.json` to the name (or UDID) of a simulator that is already logged in:
+To skip re-authentication, set `sourceSimulator` in your `.xwt.json` to the name (or UDID) of a simulator that is already logged in:
 
 ```json
 {
@@ -133,30 +128,29 @@ To skip re-authentication, set `sourceSimulator` in your `.simi.json` to the nam
 }
 ```
 
-Now every `simi start` will automatically copy the keychain from that simulator to the new one. Use `--no-copy-auth` to skip the copy, or `--copy-auth-from <name-or-udid>` to override the source on a per-invocation basis.
+Now every `xwt start` will automatically copy the keychain from that simulator to the new one. Use `--no-copy-auth` to skip the copy, or `--copy-auth-from <name-or-udid>` to override the source on a per-invocation basis.
 
 ## File Layout
 
 | Path | Purpose |
 |---|---|
-| `~/.simi/repos/<repo>/<slug>.json` | Persisted task state |
+| `~/.xwt/repos/<repo>/<slug>.json` | Persisted task state |
 | `~/worktrees/<repo>/<slug>/` | Git worktrees |
-| `~/Library/Developer/Xcode/DerivedData/simi/<slug>/` | Build artifacts |
-| `<worktree>/.simi-context` | Shell env vars (`source` this) |
+| `~/Library/Developer/Xcode/DerivedData/xwt/<slug>/` | Build artifacts |
 
-## Using simi with GitHub Copilot CLI
+## Using xwt with GitHub Copilot CLI
 
-[GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) can drive `simi` through natural language. Launch `copilot` inside a simi-managed worktree and ask it to manage your parallel development workflow.
+[GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) can drive `xwt` through natural language. Launch `copilot` inside a xwt-managed worktree and ask it to manage your parallel development workflow.
 
 ### Set up a branch environment
 
 ```
-> Set up a new simi task for the feature/auth branch using an iPhone 16 Pro on iOS 18.0
+> Set up a new xwt task for the feature/auth branch using an iPhone 16 Pro on iOS 18.0
 ```
 
 Copilot CLI will run:
 ```bash
-simi start feature/auth --device "iPhone 16 Pro" --runtime "iOS 18.0"
+xwt start feature/auth --device "iPhone 16 Pro" --runtime "iOS 18.0"
 ```
 
 ### Build and iterate on a branch
@@ -167,18 +161,18 @@ simi start feature/auth --device "iPhone 16 Pro" --runtime "iOS 18.0"
 
 Copilot CLI will run:
 ```bash
-simi run feature/auth --scheme LoginKit
+xwt run feature/auth --scheme LoginKit
 ```
 
 ### Review active tasks
 
 ```
-> Show me all my active simi tasks
+> Show me all my active xwt tasks
 ```
 
 Copilot CLI will run:
 ```bash
-simi list
+xwt list
 ```
 
 ### Clean up a branch
@@ -189,7 +183,7 @@ simi list
 
 Copilot CLI will run:
 ```bash
-simi remove feature/auth --delete-simulator --clean-derived-data --force
+xwt remove feature/auth --delete-simulator --clean-derived-data --force
 ```
 
 ### End-to-end workflow in Copilot CLI
@@ -197,8 +191,8 @@ simi remove feature/auth --delete-simulator --clean-derived-data --force
 You can ask Copilot CLI to handle the full workflow in a single prompt:
 
 ```
-> I need to work on the feature/payments branch. Set up a simi task with
-> an iPhone 16 Pro Max simulator, then open a shell in the worktree.
+> I need to work on the feature/payments branch. Set up a xwt task with
+> an iPhone 16 Pro Max simulator.
 ```
 
 Or use **plan mode** (`Shift+Tab` to switch) for multi-step orchestration:
@@ -211,15 +205,15 @@ Or use **plan mode** (`Shift+Tab` to switch) for multi-step orchestration:
 
 ### Use with `@` file mentions
 
-Reference your `.simi.json` config directly in Copilot CLI prompts:
+Reference your `.xwt.json` config directly in Copilot CLI prompts:
 
 ```
-> @.simi.json Update the default device type to iPhone 16 Pro Max
+> @.xwt.json Update the default device type to iPhone 16 Pro Max
 ```
 
 ### Use with `/diff` and `/review`
 
-After building and making changes in a simi worktree, use Copilot CLI's built-in commands:
+After building and making changes in a xwt worktree, use Copilot CLI's built-in commands:
 
 ```
 /diff    # Review changes made in the current worktree

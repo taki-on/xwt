@@ -11,7 +11,7 @@ enum ConfigLoader {
         URL(fileURLWithPath: repoRoot).lastPathComponent
     }
 
-    /// Load `.simi.json` from the given repo root, returns nil if not found.
+    /// Load `.xwt.json` from the given repo root, returns nil if not found.
     static func loadConfig(repoRoot: String) throws -> RepoConfig? {
         try RepoConfig.load(from: repoRoot)
     }

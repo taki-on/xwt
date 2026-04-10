@@ -94,7 +94,7 @@ enum SimulatorService {
             if existing.runtime != expectedRuntime {
                 print("   ⚠ Reused simulator has runtime \(existing.runtime),")
                 print("     but requested \(expectedRuntime).")
-                print("     To recreate: 'simi remove <branch> --delete-simulator' first.")
+                print("     To recreate: 'xwt remove <branch> --delete-simulator' first.")
             }
             return (existing.udid, true)
         }
