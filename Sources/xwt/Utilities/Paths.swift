@@ -16,9 +16,15 @@ enum Paths {
         repoStateDir(repo: repo).appendingPathComponent("\(slug).json")
     }
 
-    /// `~/worktrees/<repo>/<slug>/`
-    static func worktreePath(repo: String, slug: String) -> URL {
-        home.appendingPathComponent("worktrees").appendingPathComponent(repo).appendingPathComponent(slug)
+    /// `<worktreeDir>/<repo>/<slug>/` — defaults to `~/worktrees` when no custom dir is set.
+    static func worktreePath(repo: String, slug: String, worktreeDir: String? = nil) -> URL {
+        let base: URL
+        if let dir = worktreeDir {
+            base = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+        } else {
+            base = home.appendingPathComponent("worktrees")
+        }
+        return base.appendingPathComponent(repo).appendingPathComponent(slug)
     }
 
     /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/Keychains/`

@@ -41,7 +41,7 @@ struct Start: ParsableCommand {
             throw ExitCode.failure
         }
 
-        let worktreePath = Paths.worktreePath(repo: repo, slug: slug).path
+        let worktreePath = Paths.worktreePath(repo: repo, slug: slug, worktreeDir: config.worktreeDir).path
         let derivedDataPath = Paths.derivedDataPath(slug: slug).path
         let simName = "xwt-\(slug)"
 
