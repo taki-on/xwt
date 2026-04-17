@@ -18,10 +18,13 @@ enum ShellRunner {
     }
 
     @discardableResult
-    static func run(_ arguments: [String]) throws -> String {
+    static func run(_ arguments: [String], cwd: String? = nil) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = arguments
+        if let cwd {
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -65,12 +68,15 @@ enum ShellRunner {
     }
 
     /// Run and stream output directly to stdout/stderr (for xcodebuild etc.)
-    static func exec(_ arguments: [String]) throws {
+    static func exec(_ arguments: [String], cwd: String? = nil) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = arguments
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
+        if let cwd {
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        }
 
         try process.run()
         process.waitUntilExit()

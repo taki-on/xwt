@@ -114,7 +114,9 @@ Create a `.xwt.json` file in your repository root to set project defaults:
 }
 ```
 
-Supported fields: `workspace`, `project`, `scheme`, `deviceType`, `runtime`, `sourceSimulator`.
+Supported fields: `workspace`, `project`, `package`, `scheme`, `deviceType`, `runtime`, `sourceSimulator`, `worktreeDir`.
+
+`workspace`, `project`, and `package` are mutually exclusive. Use `package` for Swift Package repositories (typically `"Package.swift"`); `xwt run` invokes `xcodebuild` from the worktree root with no `-workspace` / `-project` flag, letting `xcodebuild` discover the package automatically.
 
 ### Auth / Keychain Copy
 

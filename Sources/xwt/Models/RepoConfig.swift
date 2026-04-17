@@ -4,6 +4,7 @@ import Foundation
 struct RepoConfig: Codable {
     var workspace: String?
     var project: String?
+    var package: String?
     var scheme: String?
     var deviceType: String?
     var runtime: String?

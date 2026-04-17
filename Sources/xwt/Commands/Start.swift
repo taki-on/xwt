@@ -93,6 +93,7 @@ struct Start: ParsableCommand {
                 scheme: config.scheme,
                 workspace: config.workspace,
                 project: config.project,
+                package: config.package,
                 createdAt: Date()
             )
             try StateManager.save(task)

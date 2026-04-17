@@ -11,6 +11,7 @@ struct TaskState: Codable {
     let scheme: String?
     let workspace: String?
     let project: String?
+    let package: String?
     let createdAt: Date
 
     /// Generate a Copilot instructions file that auto-configures XcodeBuildMCP session defaults.
@@ -35,6 +36,13 @@ struct TaskState: Codable {
         if let workspace { lines.append("- workspacePath: \(workspace)") }
         if let project { lines.append("- projectPath: \(project)") }
         if let scheme { lines.append("- scheme: \(scheme)") }
+        if package != nil {
+            lines.append("")
+            lines.append(
+                "This is a Swift Package (Package.swift). Do not set workspacePath or projectPath; "
+                + "XcodeBuildMCP will discover the package from the worktree directory."
+            )
+        }
         lines.append("")
         return lines.joined(separator: "\n")
     }

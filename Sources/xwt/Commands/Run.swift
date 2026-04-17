@@ -37,6 +37,8 @@ struct Run: ParsableCommand {
         } else if let project = task.project {
             args += ["-project", project]
         }
+        // For Swift Packages (task.package), pass no -workspace/-project flag;
+        // xcodebuild discovers Package.swift from the working directory.
 
         args += [
             "-scheme", buildScheme,
@@ -50,7 +52,7 @@ struct Run: ParsableCommand {
         print("   Destination: \(task.simulatorUDID)")
         print()
 
-        try ShellRunner.exec(args)
+        try ShellRunner.exec(args, cwd: task.package != nil ? task.worktreePath : nil)
 
         if buildOnly {
             print("\n✅ Build succeeded.")

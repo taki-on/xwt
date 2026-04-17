@@ -78,34 +78,43 @@ struct Init: ParsableCommand {
                 options.append(name)
             } else if name.hasSuffix(".xcodeproj") {
                 options.append(name)
+            } else if name == "Package.swift" {
+                options.append(name)
             }
         }
 
-        let currentValue = config.workspace ?? config.project
+        let currentValue = config.workspace ?? config.project ?? config.package
         let defaultIndex = currentValue.flatMap { cv in options.firstIndex(of: cv) }
 
         let selected: String?
         if options.isEmpty {
             selected = Prompt.input(
-                prompt: "📦 Workspace or project path (or press Enter to skip)",
+                prompt: "📦 Workspace, project, or Package.swift path (or press Enter to skip)",
                 defaultValue: currentValue
             )
         } else {
             selected = Prompt.choose(
-                prompt: "📦 Select workspace or project:",
+                prompt: "📦 Select workspace, project, or Swift Package:",
                 options: options,
                 defaultIndex: defaultIndex,
                 allowNone: true
             )
         }
 
-        // Clear both, then set the appropriate one
+        // Clear all three, then set the appropriate one
         config.workspace = nil
         config.project = nil
+        config.package = nil
         if let selected {
             if selected.hasSuffix(".xcworkspace") {
                 config.workspace = selected
+            } else if selected.hasSuffix(".xcodeproj") {
+                config.project = selected
+            } else if selected == "Package.swift" || selected.hasSuffix("/Package.swift") {
+                config.package = selected
             } else {
+                // Fallback for free-form input that doesn't match a known suffix:
+                // treat as a project path.
                 config.project = selected
             }
         }
@@ -127,6 +136,8 @@ struct Init: ParsableCommand {
             schemes = detectSchemes(flag: "-workspace", value: workspace, repoRoot: repoRoot)
         } else if let project = config.project {
             schemes = detectSchemes(flag: "-project", value: project, repoRoot: repoRoot)
+        } else if config.package != nil {
+            schemes = detectPackageSchemes(repoRoot: repoRoot)
         }
 
         if !schemes.isEmpty {
@@ -157,6 +168,17 @@ struct Init: ParsableCommand {
             let output = try ShellRunner.run(
                 "xcodebuild", flag, absolutePath, "-list"
             )
+            return parseSchemes(from: output)
+        } catch {
+            print("   ⚠ Could not detect schemes: \(error)")
+            return []
+        }
+    }
+
+    private func detectPackageSchemes(repoRoot: String) -> [String] {
+        print("   Detecting schemes...")
+        do {
+            let output = try ShellRunner.run(["xcodebuild", "-list"], cwd: repoRoot)
             return parseSchemes(from: output)
         } catch {
             print("   ⚠ Could not detect schemes: \(error)")
@@ -449,6 +471,7 @@ struct Init: ParsableCommand {
         print("\n   Summary:")
         if let w = config.workspace { print("   workspace:        \(w)") }
         if let p = config.project { print("   project:          \(p)") }
+        if let pkg = config.package { print("   package:          \(pkg)") }
         if let s = config.scheme { print("   scheme:           \(s)") }
         if let d = config.deviceType { print("   deviceType:       \(d)") }
         if let r = config.runtime { print("   runtime:          \(r)") }
