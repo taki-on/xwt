@@ -37,6 +37,9 @@ swift run xwt <command>
 ## Quick Start
 
 ```bash
+# Set up xwt in your repo (interactive, one-time)
+xwt init
+
 # Start a new task for a feature branch
 xwt start feature/login-refactor
 
@@ -54,6 +57,21 @@ xwt remove feature/login-refactor
 ```
 
 ## Commands
+
+### `xwt init`
+
+Interactively creates or updates the `.xwt.json` configuration file in your repository root. Walks you through each setting with auto-detected options:
+
+1. **Workspace / Project / Package** — scans the repo root for `.xcworkspace`, `.xcodeproj`, and `Package.swift` files
+2. **Scheme** — runs `xcodebuild -list` to discover available schemes
+3. **Device type** — lists available iPhone simulator types via `simctl`
+4. **iOS runtime** — lists installed iOS runtimes
+5. **Source simulator** — picks a simulator to copy the keychain from (for auto-login)
+6. **Worktree directory** — base directory for worktrees (default `~/worktrees`)
+
+After saving the config, `xwt init` offers to add `.xwt.json` and the Copilot instructions file to `.gitignore` or `.git/info/exclude`.
+
+If a `.xwt.json` already exists, its values are used as defaults so you can update individual settings without re-entering everything.
 
 ### `xwt start <branch>`
 
@@ -197,6 +215,17 @@ The instructions file is specific to each developer's local environment (it cont
 Copilot CLI will run:
 ```bash
 xwt start feature/auth --device "iPhone 16 Pro" --runtime "iOS 18.0"
+```
+
+### Initialize project configuration
+
+```
+> Initialize xwt in this repo
+```
+
+Copilot CLI will run:
+```bash
+xwt init
 ```
 
 ### Build and iterate on a branch
