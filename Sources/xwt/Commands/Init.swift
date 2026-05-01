@@ -8,7 +8,7 @@ struct Init: ParsableCommand {
     )
 
     func run() throws {
-        let repoRoot = try ConfigLoader.detectRepoRoot()
+        let repoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         print("🚀 Initializing xwt for '\(repo)'\n")

@@ -164,7 +164,7 @@ struct Start: ParsableCommand {
         }
 
         // Auto-detect: check if cwd is inside an xwt-managed worktree
-        guard let cwdTopLevel = try? ConfigLoader.detectRepoRoot() else { return nil }
+        guard let cwdTopLevel = try? ConfigLoader.detectWorkingTreeRoot() else { return nil }
         let canonicalCwd = URL(fileURLWithPath: cwdTopLevel).standardized.path
 
         let allTasks = try StateManager.listAll(repo: repo)

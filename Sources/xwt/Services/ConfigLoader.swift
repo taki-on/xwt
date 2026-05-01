@@ -2,8 +2,9 @@ import Foundation
 
 enum ConfigLoader {
     /// Detect the working tree root from the current directory.
-    /// Inside a worktree this returns the worktree path; in the main repo it returns the repo root.
-    static func detectRepoRoot() throws -> String {
+    /// Inside a worktree this returns the **worktree** path, not the main repo root.
+    /// Use `detectMainRepoRoot()` when you need the repo identity (name, config location).
+    static func detectWorkingTreeRoot() throws -> String {
         try ShellRunner.run("git", "rev-parse", "--show-toplevel")
     }
 
