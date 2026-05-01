@@ -16,7 +16,7 @@ struct Run: ParsableCommand {
     var buildOnly = false
 
     func run() throws {
-        let repoRoot = try ConfigLoader.detectRepoRoot()
+        let repoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {

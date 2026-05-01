@@ -6,6 +6,6 @@ struct Xwt: ParsableCommand {
         commandName: "xwt",
         abstract: "Orchestrate git worktrees and iOS Simulators for parallel branch development.",
         version: "0.2.0",
-        subcommands: [Init.self, Start.self, List.self, Run.self, Remove.self]
+        subcommands: [Init.self, Start.self, List.self, Run.self, Remove.self, PR.self, Restack.self]
     )
 }

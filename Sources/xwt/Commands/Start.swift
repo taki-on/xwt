@@ -24,11 +24,17 @@ struct Start: ParsableCommand {
     @Flag(name: .long, help: "Skip keychain copy even when sourceSimulator is configured in .xwt.json.")
     var noCopyAuth = false
 
+    @Option(name: .long, help: "Base branch to stack on (e.g. feature/auth). Creates the new branch from this base.")
+    var base: String?
+
+    @Flag(name: .long, help: "Don't auto-detect base branch from current worktree.")
+    var noBase = false
+
     func run() throws {
-        let repoRoot = try ConfigLoader.detectRepoRoot()
-        let repo = ConfigLoader.repoName(from: repoRoot)
+        let mainRepoRoot = try ConfigLoader.detectMainRepoRoot()
+        let repo = ConfigLoader.repoName(from: mainRepoRoot)
         let slug = BranchSlug.slugify(branch)
-        let config = try ConfigLoader.loadConfigWithDefaults(repoRoot: repoRoot)
+        let config = try ConfigLoader.loadConfigWithDefaults(repoRoot: mainRepoRoot)
 
         // Check for existing task (with slug collision detection)
         if let existing = try StateManager.find(repo: repo, branchOrSlug: branch) {
@@ -41,6 +47,9 @@ struct Start: ParsableCommand {
             throw ExitCode.failure
         }
 
+        // Resolve base branch for stacking
+        let resolvedBase = try resolveBaseBranch(repo: repo)
+
         let worktreePath = Paths.worktreePath(repo: repo, slug: slug, worktreeDir: config.worktreeDir).path
         let derivedDataPath = Paths.derivedDataPath(slug: slug).path
         let simName = "xwt-\(slug)"
@@ -50,13 +59,15 @@ struct Start: ParsableCommand {
         var createdSimulatorUDID: String?
 
         do {
-            // 1. Create worktree
+            // 1. Create worktree (from base branch if stacking)
+            if let baseInfo = resolvedBase {
+                print("🔗 Stacking on '\(baseInfo.branch)'\(baseInfo.autoDetected ? " (auto-detected from current worktree)" : "")")
+            }
             print("📂 Creating worktree at \(worktreePath)...")
-            try WorktreeService.add(repoRoot: repoRoot, branch: branch, path: worktreePath)
+            try WorktreeService.add(repoRoot: mainRepoRoot, branch: branch, path: worktreePath, baseBranch: resolvedBase?.branch)
             createdWorktree = true
 
             // 2. Create or reuse simulator (CLI flags override .xwt.json)
-            // loadConfigWithDefaults guarantees deviceType and runtime are non-nil
             let deviceType = device ?? config.deviceType!
             let runtimeStr = self.runtime ?? config.runtime!
             print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
@@ -64,9 +75,11 @@ struct Start: ParsableCommand {
             if !reused { createdSimulatorUDID = udid }
             print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
 
-            // 3. Copy keychain from source simulator (before boot)
+            // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator)
             if !noCopyAuth {
-                let sourceID = copyAuthFrom ?? config.sourceSimulator
+                let sourceID = copyAuthFrom
+                    ?? resolvedBase?.parentTask?.simulatorUDID
+                    ?? config.sourceSimulator
                 if let sourceID = sourceID {
                     copyKeychain(from: sourceID, to: udid)
                 }
@@ -94,7 +107,9 @@ struct Start: ParsableCommand {
                 workspace: config.workspace,
                 project: config.project,
                 package: config.package,
-                createdAt: Date()
+                createdAt: Date(),
+                parentBranch: resolvedBase?.branch,
+                parentSlug: resolvedBase?.parentTask?.slug
             )
             try StateManager.save(task)
 
@@ -108,6 +123,9 @@ struct Start: ParsableCommand {
             print("   Worktree:     \(worktreePath)")
             print("   Simulator:    \(simName) (\(udid))")
             print("   DerivedData:  \(derivedDataPath)")
+            if let baseInfo = resolvedBase {
+                print("   Base:         \(baseInfo.branch)")
+            }
             print("")
             print("   cd \(worktreePath)")
         } catch {
@@ -119,11 +137,45 @@ struct Start: ParsableCommand {
                 try? SimulatorService.delete(udid: simUDID)
             }
             if createdWorktree {
-                try? WorktreeService.remove(repoRoot: repoRoot, path: worktreePath)
+                try? WorktreeService.remove(repoRoot: mainRepoRoot, path: worktreePath)
             }
             try? FileManager.default.removeItem(atPath: derivedDataPath)
             throw error
         }
+    }
+
+    // MARK: - Base branch resolution
+
+    private struct ResolvedBase {
+        let branch: String
+        let parentTask: TaskState?
+        let autoDetected: Bool
+    }
+
+    /// Resolve the base branch for stacking.
+    /// Priority: --base explicit > auto-detected from cwd > nil (fork from HEAD).
+    private func resolveBaseBranch(repo: String) throws -> ResolvedBase? {
+        if noBase { return nil }
+
+        // Explicit --base
+        if let explicit = base {
+            let parentTask = try StateManager.find(repo: repo, branchOrSlug: explicit)
+            return ResolvedBase(branch: explicit, parentTask: parentTask, autoDetected: false)
+        }
+
+        // Auto-detect: check if cwd is inside an xwt-managed worktree
+        guard let cwdTopLevel = try? ConfigLoader.detectRepoRoot() else { return nil }
+        let canonicalCwd = URL(fileURLWithPath: cwdTopLevel).standardized.path
+
+        let allTasks = try StateManager.listAll(repo: repo)
+        for task in allTasks {
+            let canonicalTaskPath = URL(fileURLWithPath: task.worktreePath).standardized.path
+            if canonicalCwd == canonicalTaskPath {
+                return ResolvedBase(branch: task.branch, parentTask: task, autoDetected: true)
+            }
+        }
+
+        return nil
     }
 
     /// Copy keychain from a source simulator to the target. Non-fatal on failure.

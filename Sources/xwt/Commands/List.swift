@@ -39,26 +39,78 @@ struct List: ParsableCommand {
             print("📦 \(repoName)")
             print(String(repeating: "─", count: 80))
 
-            for task in tasks.sorted(by: { $0.createdAt < $1.createdAt }) {
-                let bootedStatus: String
-                if let info = SimulatorService.findByUDID(task.simulatorUDID, in: allDevices) {
-                    bootedStatus = info.isBooted ? "🟢 Booted" : "⚪ Shutdown"
-                } else {
-                    bootedStatus = "❌ Not found"
+            let hasStacks = tasks.contains { $0.parentSlug != nil }
+            if hasStacks {
+                printTree(tasks: tasks, devices: allDevices, formatter: formatter)
+            } else {
+                for task in tasks.sorted(by: { $0.createdAt < $1.createdAt }) {
+                    printTaskFlat(task, devices: allDevices, formatter: formatter)
                 }
-
-                let dateStr = formatter.string(from: task.createdAt)
-
-                print("  \(task.branch)")
-                print("    Worktree:   \(task.worktreePath)")
-                print("    Simulator:  \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…) \(bootedStatus)")
-                print("    Created:    \(dateStr)")
-                print()
             }
         }
 
         if totalTasks == 0 {
             print("No active tasks.")
         }
+    }
+
+    // MARK: - Tree rendering
+
+    private func printTree(tasks: [TaskState], devices: [String: SimulatorInfo], formatter: DateFormatter) {
+        let byParent = Dictionary(grouping: tasks, by: { $0.parentSlug ?? "" })
+        let roots = tasks
+            .filter { task in task.parentSlug == nil || !tasks.contains(where: { $0.slug == task.parentSlug }) }
+            .sorted(by: { $0.createdAt < $1.createdAt })
+
+        for (i, root) in roots.enumerated() {
+            let isLast = i == roots.count - 1
+            let prefix = isLast ? "  └── " : "  ├── "
+            let childPrefix = isLast ? "      " : "  │   "
+            printTaskNode(root, prefix: prefix, childPrefix: childPrefix, byParent: byParent, devices: devices, formatter: formatter)
+        }
+        print()
+    }
+
+    private func printTaskNode(
+        _ task: TaskState,
+        prefix: String,
+        childPrefix: String,
+        byParent: [String: [TaskState]],
+        devices: [String: SimulatorInfo],
+        formatter: DateFormatter
+    ) {
+        let status = simulatorStatus(task: task, devices: devices)
+        print("\(prefix)\(task.branch) (\(task.simulatorName), \(status))")
+
+        let children = (byParent[task.slug] ?? []).sorted(by: { $0.createdAt < $1.createdAt })
+        for (j, child) in children.enumerated() {
+            let isLastChild = j == children.count - 1
+            let nextPrefix = childPrefix + (isLastChild ? "└── " : "├── ")
+            let nextChildPrefix = childPrefix + (isLastChild ? "    " : "│   ")
+            printTaskNode(child, prefix: nextPrefix, childPrefix: nextChildPrefix, byParent: byParent, devices: devices, formatter: formatter)
+        }
+    }
+
+    // MARK: - Flat rendering
+
+    private func printTaskFlat(_ task: TaskState, devices: [String: SimulatorInfo], formatter: DateFormatter) {
+        let bootedStatus = simulatorStatus(task: task, devices: devices)
+        let dateStr = formatter.string(from: task.createdAt)
+
+        print("  \(task.branch)")
+        print("    Worktree:   \(task.worktreePath)")
+        print("    Simulator:  \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…) \(bootedStatus)")
+        print("    Created:    \(dateStr)")
+        if let parent = task.parentBranch {
+            print("    Base:       \(parent)")
+        }
+        print()
+    }
+
+    private func simulatorStatus(task: TaskState, devices: [String: SimulatorInfo]) -> String {
+        if let info = SimulatorService.findByUDID(task.simulatorUDID, in: devices) {
+            return info.isBooted ? "🟢 Booted" : "⚪ Shutdown"
+        }
+        return "❌ Not found"
     }
 }

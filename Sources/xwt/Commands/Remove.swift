@@ -18,13 +18,77 @@ struct Remove: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Skip confirmation prompt.")
     var force = false
 
+    @Flag(name: .long, help: "Re-point child tasks to this task's parent before removing.")
+    var reparent = false
+
+    @Flag(name: .long, help: "Remove this task and all its descendants.")
+    var cascade = false
+
     func run() throws {
-        let repoRoot = try ConfigLoader.detectRepoRoot()
+        let repoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
             print("❌ No task found for '\(branch)'.")
             throw ExitCode.failure
+        }
+
+        let children = try StateManager.findChildren(repo: repo, slug: task.slug)
+
+        // Warn about children if neither --reparent nor --cascade
+        if !children.isEmpty && !reparent && !cascade {
+            print("⚠ Task '\(task.branch)' has \(children.count) child branch\(children.count == 1 ? "" : "es"):")
+            for child in children {
+                print("  • \(child.branch)")
+            }
+            print()
+            print("Use --reparent to re-point children to '\(task.parentBranch ?? "root")',")
+            print("or --cascade to remove this task and all descendants.")
+            throw ExitCode.failure
+        }
+
+        if cascade {
+            let descendants = try StateManager.findDescendants(repo: repo, slug: task.slug)
+            let allTasks = [task] + descendants
+            if !force {
+                print("About to remove \(allTasks.count) task(s):")
+                for t in allTasks { print("  • \(t.branch)") }
+                print()
+                print("Continue? [y/N] ", terminator: "")
+                guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+                    print("Cancelled.")
+                    return
+                }
+            }
+            for t in allTasks.reversed() {
+                removeSingleTask(t, repoRoot: repoRoot, repo: repo)
+            }
+            print("✅ Removed \(allTasks.count) task(s).")
+            return
+        }
+
+        if reparent && !children.isEmpty {
+            print("🔄 Re-parenting \(children.count) child branch\(children.count == 1 ? "" : "es")...")
+            for child in children {
+                let updated = TaskState(
+                    repo: child.repo,
+                    branch: child.branch,
+                    slug: child.slug,
+                    worktreePath: child.worktreePath,
+                    simulatorName: child.simulatorName,
+                    simulatorUDID: child.simulatorUDID,
+                    derivedDataPath: child.derivedDataPath,
+                    scheme: child.scheme,
+                    workspace: child.workspace,
+                    project: child.project,
+                    package: child.package,
+                    createdAt: child.createdAt,
+                    parentBranch: task.parentBranch,
+                    parentSlug: task.parentSlug
+                )
+                try StateManager.save(updated)
+                print("   ↳ \(child.branch) → base: \(task.parentBranch ?? "root")")
+            }
         }
 
         if !force {
@@ -43,13 +107,15 @@ struct Remove: ParsableCommand {
             }
         }
 
-        // 1. Shutdown simulator
-        print("📱 Shutting down simulator...")
-        try SimulatorService.shutdown(udid: task.simulatorUDID)
+        removeSingleTask(task, repoRoot: repoRoot, repo: repo)
+    }
+
+    private func removeSingleTask(_ task: TaskState, repoRoot: String, repo: String) {
+        print("📱 Shutting down simulator '\(task.simulatorName)'...")
+        try? SimulatorService.shutdown(udid: task.simulatorUDID)
 
         var warnings: [String] = []
 
-        // 2. Delete simulator (default) or keep it
         if !keepSimulator {
             print("🗑  Deleting simulator...")
             do {
@@ -59,7 +125,6 @@ struct Remove: ParsableCommand {
             }
         }
 
-        // 3. Remove worktree
         print("📂 Removing worktree...")
         do {
             try WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
@@ -67,7 +132,6 @@ struct Remove: ParsableCommand {
             warnings.append("Could not remove worktree at \(task.worktreePath): \(error)")
         }
 
-        // 4. Clean derived data (default) or keep it
         if !keepDerivedData {
             print("🧹 Cleaning derived data...")
             do {
@@ -77,8 +141,7 @@ struct Remove: ParsableCommand {
             }
         }
 
-        // 5. Remove state file
-        try StateManager.delete(repo: repo, slug: task.slug)
+        try? StateManager.delete(repo: repo, slug: task.slug)
 
         if warnings.isEmpty {
             print("✅ Task '\(task.branch)' removed.")

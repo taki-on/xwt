@@ -14,6 +14,10 @@ struct TaskState: Codable {
     let package: String?
     let createdAt: Date
 
+    // Stacked PR support
+    let parentBranch: String?
+    let parentSlug: String?
+
     /// Generate a Copilot instructions file that auto-configures XcodeBuildMCP session defaults.
     func copilotInstructionsContent() -> String {
         var lines = [

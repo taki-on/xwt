@@ -56,6 +56,31 @@ xwt list
 xwt remove feature/login-refactor
 ```
 
+### Stacked PRs
+
+```bash
+# Start the first branch
+xwt start feature/auth
+
+# cd into it, then start a child branch — auto-detected!
+cd ~/worktrees/<repo>/feature-auth
+xwt start feature/auth-ui
+# prints: 🔗 Stacking on 'feature/auth' (auto-detected from current worktree)
+
+# Or be explicit
+xwt start feature/auth-tests --base feature/auth
+
+# Create PRs with correct base branches
+xwt pr feature/auth          # PR: feature/auth → main
+xwt pr feature/auth-ui       # PR: feature/auth-ui → feature/auth
+
+# After updating a parent branch, rebase the stack
+xwt restack feature/auth
+
+# List shows the tree structure
+xwt list
+```
+
 ## Commands
 
 ### `xwt init`
@@ -91,10 +116,16 @@ Creates a full isolated environment for a branch:
 | `--copy-auth-from <sim>` | Copy keychain from this simulator (name or UDID) to skip re-login | — |
 | `--no-copy-auth` | Skip keychain copy even when `sourceSimulator` is configured | `false` |
 | `--no-boot` | Skip booting the simulator | `false` |
+| `--base <branch>` | Base branch to stack on (creates new branch from this base) | auto-detect |
+| `--no-base` | Don't auto-detect base branch from current worktree | `false` |
+
+**Stacking auto-detection**: when you run `xwt start` from inside an xwt-managed worktree, the new branch automatically stacks on the current worktree's branch. Use `--no-base` to opt out.
+
+When stacking, the keychain is automatically copied from the parent task's simulator (unless `--copy-auth-from` or `--no-copy-auth` is specified).
 
 ### `xwt list`
 
-Lists all active tasks with branch, worktree path, simulator info, and status.
+Lists all active tasks with branch, worktree path, simulator info, and status. When tasks have parent-child relationships (stacked branches), they are displayed as a tree.
 
 | Option | Description |
 |---|---|
@@ -111,13 +142,34 @@ Builds the project for the branch's assigned simulator using `xcodebuild`.
 
 ### `xwt remove <branch>`
 
-Removes a task and cleans up its resources.
+Removes a task and cleans up its resources. If the task has child branches (stacked on it), you must specify how to handle them.
 
 | Option | Description |
 |---|---|
-| `--delete-simulator` | Also delete the simulator device |
-| `--clean-derived-data` | Also remove the DerivedData directory |
+| `--keep-simulator` | Keep the simulator device instead of deleting it |
+| `--keep-derived-data` | Keep the DerivedData directory |
 | `--force` | Skip confirmation prompt |
+| `--reparent` | Re-point child tasks to this task's parent before removing |
+| `--cascade` | Remove this task and all its descendants |
+
+### `xwt pr <branch>`
+
+Creates a GitHub pull request using `gh`. Automatically sets the PR base to the parent branch for stacked PRs, or to the main branch for root tasks.
+
+| Option | Description |
+|---|---|
+| `--draft` | Create a draft pull request |
+| `--title <text>` | PR title (inferred from commits if omitted) |
+| `--body <text>` | PR body |
+| `--fill` | Use first commit message as title and body |
+
+### `xwt restack [<branch>]`
+
+Rebases stacked branches onto their updated parents in topological order. Validates that all worktrees are clean before starting.
+
+- If `<branch>` is given, restacks that branch and all its descendants.
+- If omitted, restacks all stacked branches in the repo.
+- On conflict, stops and tells you which worktree to resolve in.
 
 ## Configuration
 

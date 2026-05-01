@@ -82,6 +82,74 @@ enum StateManager {
         }
     }
 
+    // MARK: - Stack queries
+
+    /// Find all tasks whose `parentSlug` matches the given slug.
+    static func findChildren(repo: String, slug: String) throws -> [TaskState] {
+        try listAll(repo: repo).filter { $0.parentSlug == slug }
+    }
+
+    /// Find all descendants (transitive children) of a task via BFS.
+    static func findDescendants(repo: String, slug: String) throws -> [TaskState] {
+        let allTasks = try listAll(repo: repo)
+        let byParentSlug = Dictionary(grouping: allTasks, by: { $0.parentSlug ?? "" })
+        var result: [TaskState] = []
+        var queue = byParentSlug[slug] ?? []
+        var visited: Set<String> = [slug]
+        while !queue.isEmpty {
+            let task = queue.removeFirst()
+            guard !visited.contains(task.slug) else { continue }
+            visited.insert(task.slug)
+            result.append(task)
+            queue.append(contentsOf: byParentSlug[task.slug] ?? [])
+        }
+        return result
+    }
+
+    /// Return tasks in topological order (parents before children).
+    static func topologicalSort(_ tasks: [TaskState]) -> [TaskState] {
+        let slugSet = Set(tasks.map(\.slug))
+        let bySlug = Dictionary(uniqueKeysWithValues: tasks.map { ($0.slug, $0) })
+        var inDegree: [String: Int] = [:]
+        var children: [String: [String]] = [:]
+        for task in tasks {
+            inDegree[task.slug] = 0
+            children[task.slug] = []
+        }
+        for task in tasks {
+            if let parent = task.parentSlug, slugSet.contains(parent) {
+                inDegree[task.slug, default: 0] += 1
+                children[parent, default: []].append(task.slug)
+            }
+        }
+        var queue = tasks.filter { inDegree[$0.slug] == 0 }.map(\.slug)
+        var result: [TaskState] = []
+        while !queue.isEmpty {
+            let slug = queue.removeFirst()
+            if let task = bySlug[slug] { result.append(task) }
+            for child in children[slug] ?? [] {
+                inDegree[child, default: 1] -= 1
+                if inDegree[child] == 0 { queue.append(child) }
+            }
+        }
+        return result
+    }
+
+    /// Detect the main branch name for a repo.
+    static func detectMainBranch(repoRoot: String) -> String {
+        if let ref = try? ShellRunner.run("git", "-C", repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD") {
+            let components = ref.split(separator: "/")
+            if let last = components.last { return String(last) }
+        }
+        // Fallback: check common names
+        for name in ["main", "master", "trunk"] {
+            if (try? ShellRunner.run("git", "-C", repoRoot, "rev-parse", "--verify", name)) != nil {
+                return name
+            }
+        }
+        return "main"
+    }
+
     // MARK: - Copilot Instructions
 
     static func writeCopilotInstructions(_ task: TaskState) throws {
