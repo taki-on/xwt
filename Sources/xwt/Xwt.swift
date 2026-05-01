@@ -5,7 +5,7 @@ struct Xwt: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "xwt",
         abstract: "Orchestrate git worktrees and iOS Simulators for parallel branch development.",
-        version: "0.2.0",
+        version: xwtVersion,
         subcommands: [Init.self, Start.self, List.self, Run.self, Remove.self, PR.self, Restack.self]
     )
 }
