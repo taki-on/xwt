@@ -30,6 +30,9 @@ struct Start: ParsableCommand {
     @Flag(name: .long, help: "Don't auto-detect base branch from current worktree.")
     var noBase = false
 
+    @Flag(name: .long, help: "Create own simulator and derived data instead of sharing the parent's.")
+    var isolated = false
+
     func run() throws {
         let mainRepoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: mainRepoRoot)
@@ -51,8 +54,23 @@ struct Start: ParsableCommand {
         let resolvedBase = try resolveBaseBranch(repo: repo)
 
         let worktreePath = Paths.worktreePath(repo: repo, slug: slug, worktreeDir: config.worktreeDir).path
-        let derivedDataPath = Paths.derivedDataPath(slug: slug).path
-        let simName = "xwt-\(slug)"
+
+        // Decide whether to share parent's simulator and derived data
+        let shareResources = resolvedBase?.parentTask != nil && !isolated
+
+        let derivedDataPath: String
+        let simName: String
+        let parentSimUDID: String?
+
+        if shareResources, let parentTask = resolvedBase?.parentTask {
+            derivedDataPath = parentTask.derivedDataPath
+            simName = parentTask.simulatorName
+            parentSimUDID = parentTask.simulatorUDID
+        } else {
+            derivedDataPath = Paths.derivedDataPath(slug: slug).path
+            simName = "xwt-\(slug)"
+            parentSimUDID = nil
+        }
 
         // Track created resources for rollback on failure
         var createdWorktree = false
@@ -67,32 +85,43 @@ struct Start: ParsableCommand {
             try WorktreeService.add(repoRoot: mainRepoRoot, branch: branch, path: worktreePath, baseBranch: resolvedBase?.branch)
             createdWorktree = true
 
-            // 2. Create or reuse simulator (CLI flags override .xwt.json)
-            let deviceType = device ?? config.deviceType!
-            let runtimeStr = self.runtime ?? config.runtime!
-            print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
-            let (udid, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
-            if !reused { createdSimulatorUDID = udid }
-            print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
+            let udid: String
 
-            // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator)
-            if !noCopyAuth {
-                let sourceID = copyAuthFrom
-                    ?? resolvedBase?.parentTask?.simulatorUDID
-                    ?? config.sourceSimulator
-                if let sourceID = sourceID {
-                    copyKeychain(from: sourceID, to: udid)
+            if let sharedUDID = parentSimUDID {
+                // Sharing parent's simulator — no creation or keychain copy needed
+                udid = sharedUDID
+                print("📱 Sharing simulator '\(simName)' from '\(resolvedBase!.branch)'")
+                print("   ↳ Simulator \(udid)")
+                print("   ↳ DerivedData \(derivedDataPath)")
+            } else {
+                // 2. Create or reuse simulator (CLI flags override .xwt.json)
+                let deviceType = device ?? config.deviceType!
+                let runtimeStr = self.runtime ?? config.runtime!
+                print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
+                let (newUDID, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
+                udid = newUDID
+                if !reused { createdSimulatorUDID = udid }
+                print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
+
+                // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator)
+                if !noCopyAuth {
+                    let sourceID = copyAuthFrom
+                        ?? resolvedBase?.parentTask?.simulatorUDID
+                        ?? config.sourceSimulator
+                    if let sourceID = sourceID {
+                        copyKeychain(from: sourceID, to: udid)
+                    }
                 }
+
+                // 4. Create derived data directory
+                try FileManager.default.createDirectory(atPath: derivedDataPath, withIntermediateDirectories: true)
             }
 
-            // 4. Boot simulator
+            // 5. Boot simulator (idempotent — no-op if already booted)
             if !noBoot {
                 print("🚀 Booting simulator...")
                 try SimulatorService.boot(udid: udid)
             }
-
-            // 5. Create derived data directory
-            try FileManager.default.createDirectory(atPath: derivedDataPath, withIntermediateDirectories: true)
 
             // 6. Save task state
             let task = TaskState(
@@ -121,15 +150,15 @@ struct Start: ParsableCommand {
 
             print("✅ Task started: \(branch)")
             print("   Worktree:     \(worktreePath)")
-            print("   Simulator:    \(simName) (\(udid))")
-            print("   DerivedData:  \(derivedDataPath)")
+            print("   Simulator:    \(simName) (\(udid))\(shareResources ? " (shared)" : "")")
+            print("   DerivedData:  \(derivedDataPath)\(shareResources ? " (shared)" : "")")
             if let baseInfo = resolvedBase {
                 print("   Base:         \(baseInfo.branch)")
             }
             print("")
             print("   cd \(worktreePath)")
         } catch {
-            // Rollback on failure
+            // Rollback on failure — never delete parent's shared resources
             print("\n⚠ Task setup failed, rolling back...")
             try? StateManager.delete(repo: repo, slug: slug)
             if let simUDID = createdSimulatorUDID {
@@ -139,7 +168,9 @@ struct Start: ParsableCommand {
             if createdWorktree {
                 try? WorktreeService.remove(repoRoot: mainRepoRoot, path: worktreePath)
             }
-            try? FileManager.default.removeItem(atPath: derivedDataPath)
+            if !shareResources {
+                try? FileManager.default.removeItem(atPath: derivedDataPath)
+            }
             throw error
         }
     }

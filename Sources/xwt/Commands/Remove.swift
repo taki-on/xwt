@@ -47,12 +47,16 @@ struct Remove: ParsableCommand {
             throw ExitCode.failure
         }
 
+        // Load all tasks once for shared-resource detection
+        let allTasks = try StateManager.listAll(repo: repo)
+
         if cascade {
             let descendants = try StateManager.findDescendants(repo: repo, slug: task.slug)
-            let allTasks = [task] + descendants
+            let allRemoving = [task] + descendants
+            let removingSlugs = Set(allRemoving.map(\.slug))
             if !force {
-                print("About to remove \(allTasks.count) task(s):")
-                for t in allTasks { print("  • \(t.branch)") }
+                print("About to remove \(allRemoving.count) task(s):")
+                for t in allRemoving { print("  • \(t.branch)") }
                 print()
                 print("Continue? [y/N] ", terminator: "")
                 guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
@@ -60,10 +64,10 @@ struct Remove: ParsableCommand {
                     return
                 }
             }
-            for t in allTasks.reversed() {
-                removeSingleTask(t, repoRoot: repoRoot, repo: repo)
+            for t in allRemoving.reversed() {
+                removeSingleTask(t, repoRoot: repoRoot, repo: repo, allTasks: allTasks, removingSlugs: removingSlugs)
             }
-            print("✅ Removed \(allTasks.count) task(s).")
+            print("✅ Removed \(allRemoving.count) task(s).")
             return
         }
 
@@ -91,14 +95,29 @@ struct Remove: ParsableCommand {
             }
         }
 
+        // Determine what will happen with simulator/derived data for the confirmation prompt
+        let removingSlugs: Set<String> = [task.slug]
+        let simShared = isSimulatorShared(task: task, allTasks: allTasks, removingSlugs: removingSlugs)
+        let ddShared = isDerivedDataShared(task: task, allTasks: allTasks, removingSlugs: removingSlugs)
+
         if !force {
             print("About to remove task for '\(task.branch)':")
             print("  Worktree:    \(task.worktreePath)")
             print("  Simulator:   \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…)")
-            if !keepSimulator { print("  🗑 Will DELETE simulator") }
-            if !keepDerivedData { print("  🧹 Will remove derived data at \(task.derivedDataPath)") }
-            if keepSimulator { print("  ℹ Will only shutdown simulator (--keep-simulator)") }
-            if keepDerivedData { print("  ℹ Will keep derived data (--keep-derived-data)") }
+            if simShared {
+                print("  ℹ Will keep simulator — still used by other tasks")
+            } else if keepSimulator {
+                print("  ℹ Will only shutdown simulator (--keep-simulator)")
+            } else {
+                print("  🗑 Will DELETE simulator")
+            }
+            if ddShared {
+                print("  ℹ Will keep derived data — still used by other tasks")
+            } else if keepDerivedData {
+                print("  ℹ Will keep derived data (--keep-derived-data)")
+            } else {
+                print("  🧹 Will remove derived data at \(task.derivedDataPath)")
+            }
             print()
             print("Continue? [y/N] ", terminator: "")
             guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
@@ -107,21 +126,38 @@ struct Remove: ParsableCommand {
             }
         }
 
-        removeSingleTask(task, repoRoot: repoRoot, repo: repo)
+        removeSingleTask(task, repoRoot: repoRoot, repo: repo, allTasks: allTasks, removingSlugs: removingSlugs)
     }
 
-    private func removeSingleTask(_ task: TaskState, repoRoot: String, repo: String) {
-        print("📱 Shutting down simulator '\(task.simulatorName)'...")
-        try? SimulatorService.shutdown(udid: task.simulatorUDID)
+    /// Check if any task outside the removal set shares this task's simulator.
+    private func isSimulatorShared(task: TaskState, allTasks: [TaskState], removingSlugs: Set<String>) -> Bool {
+        allTasks.contains { $0.slug != task.slug && !removingSlugs.contains($0.slug) && $0.simulatorUDID == task.simulatorUDID }
+    }
+
+    /// Check if any task outside the removal set shares this task's derived data.
+    private func isDerivedDataShared(task: TaskState, allTasks: [TaskState], removingSlugs: Set<String>) -> Bool {
+        allTasks.contains { $0.slug != task.slug && !removingSlugs.contains($0.slug) && $0.derivedDataPath == task.derivedDataPath }
+    }
+
+    private func removeSingleTask(_ task: TaskState, repoRoot: String, repo: String, allTasks: [TaskState], removingSlugs: Set<String>) {
+        let simShared = isSimulatorShared(task: task, allTasks: allTasks, removingSlugs: removingSlugs)
+        let ddShared = isDerivedDataShared(task: task, allTasks: allTasks, removingSlugs: removingSlugs)
 
         var warnings: [String] = []
 
-        if !keepSimulator {
-            print("🗑  Deleting simulator...")
-            do {
-                try SimulatorService.delete(udid: task.simulatorUDID)
-            } catch {
-                warnings.append("Could not delete simulator \(task.simulatorUDID): \(error)")
+        if simShared {
+            print("ℹ Keeping simulator '\(task.simulatorName)' — still used by other tasks.")
+        } else {
+            print("📱 Shutting down simulator '\(task.simulatorName)'...")
+            try? SimulatorService.shutdown(udid: task.simulatorUDID)
+
+            if !keepSimulator {
+                print("🗑  Deleting simulator...")
+                do {
+                    try SimulatorService.delete(udid: task.simulatorUDID)
+                } catch {
+                    warnings.append("Could not delete simulator \(task.simulatorUDID): \(error)")
+                }
             }
         }
 
@@ -132,7 +168,9 @@ struct Remove: ParsableCommand {
             warnings.append("Could not remove worktree at \(task.worktreePath): \(error)")
         }
 
-        if !keepDerivedData {
+        if ddShared {
+            print("ℹ Keeping derived data — still used by other tasks.")
+        } else if !keepDerivedData {
             print("🧹 Cleaning derived data...")
             do {
                 try FileManager.default.removeItem(atPath: task.derivedDataPath)
