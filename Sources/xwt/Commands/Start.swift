@@ -67,8 +67,8 @@ struct Start: ParsableCommand {
             simName = parentTask.simulatorName
             parentSimUDID = parentTask.simulatorUDID
         } else {
-            derivedDataPath = Paths.derivedDataPath(slug: slug).path
-            simName = "xwt-\(slug)"
+            derivedDataPath = Paths.derivedDataPath(repo: repo, slug: slug).path
+            simName = "\(slug) (\(repo))"
             parentSimUDID = nil
         }
 

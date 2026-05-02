@@ -35,11 +35,12 @@ enum Paths {
             .appendingPathComponent("data/Library/Keychains")
     }
 
-    /// `~/Library/Developer/Xcode/DerivedData/xwt/<slug>/`
-    static func derivedDataPath(slug: String) -> URL {
+    /// `~/Library/Developer/Xcode/DerivedData/xwt/<repo>/<slug>/`
+    static func derivedDataPath(repo: String, slug: String) -> URL {
         home
             .appendingPathComponent("Library/Developer/Xcode/DerivedData")
             .appendingPathComponent("xwt")
+            .appendingPathComponent(repo)
             .appendingPathComponent(slug)
     }
 }
