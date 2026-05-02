@@ -10,6 +10,7 @@ struct RepoConfig: Codable {
     var runtime: String?
     var sourceSimulator: String?
     var worktreeDir: String?
+    var agents: [String]?
 
     static let fileName = ".xwt.json"
 

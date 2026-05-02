@@ -142,13 +142,16 @@ struct Start: ParsableCommand {
             )
             try StateManager.save(task)
 
-            // 7. Write Copilot instructions for XcodeBuildMCP auto-setup
-            try StateManager.writeCopilotInstructions(task)
+            // 7. Write AI agent instruction files based on config
+            let agents = config.agents ?? ["copilot", "claude-code"]
+            if agents.contains("copilot") {
+                try StateManager.writeCopilotInstructions(task)
+            }
+            if agents.contains("claude-code") {
+                try StateManager.writeClaudeCodeInstructions(task)
+            }
 
-            // 8. Write Claude Code instructions for XcodeBuildMCP auto-setup
-            try StateManager.writeClaudeCodeInstructions(task)
-
-            // 9. Exclude generated files from git tracking in the worktree
+            // 8. Exclude generated files from git tracking in the worktree
             excludeFromGit(worktreePath: worktreePath)
 
             print("✅ Task started: \(branch)")

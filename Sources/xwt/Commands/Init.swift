@@ -45,6 +45,9 @@ struct Init: ParsableCommand {
         // 6. Worktree directory
         config = configureWorktreeDir(config: config)
 
+        // 7. AI agents
+        config = configureAgents(config: config)
+
         // Write config
         print()
         try config.save(to: repoRoot)
@@ -374,7 +377,47 @@ struct Init: ParsableCommand {
         return config
     }
 
-    // MARK: - Step 7: Git Exclusions
+    // MARK: - Step 7: AI Agents
+
+    private func configureAgents(config: RepoConfig) -> RepoConfig {
+        var config = config
+        let allAgents = ["copilot", "claude-code"]
+        let labels = ["Copilot CLI", "Claude Code"]
+        let current = config.agents ?? allAgents
+
+        print("🤖 Which AI agents should xwt generate instruction files for?")
+        print("  (Select all that apply)\n")
+
+        var selected: [String] = []
+        for (i, agent) in allAgents.enumerated() {
+            let isDefault = current.contains(agent)
+            let defaultLabel = isDefault ? " [Y/n]" : " [y/N]"
+            print("  \(labels[i])?\(defaultLabel) ", terminator: "")
+            let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+            if answer.isEmpty {
+                if isDefault { selected.append(agent) }
+            } else if answer == "y" || answer == "yes" {
+                selected.append(agent)
+            }
+        }
+
+        if selected.isEmpty {
+            print("  ⚠ No agents selected — defaulting to all.")
+            selected = allAgents
+        }
+
+        // Only store if not the default (both selected)
+        if Set(selected) == Set(allAgents) {
+            config.agents = nil
+        } else {
+            config.agents = selected
+        }
+
+        print()
+        return config
+    }
+
+    // MARK: - Step 8: Git Exclusions
 
     private func configureGitExclusions(repoRoot: String) {
         let gitignoreURL = URL(fileURLWithPath: repoRoot).appendingPathComponent(".gitignore")
@@ -481,6 +524,10 @@ struct Init: ParsableCommand {
         if let r = config.runtime { print("   runtime:          \(r)") }
         if let s = config.sourceSimulator { print("   sourceSimulator:  \(s)") }
         if let w = config.worktreeDir { print("   worktreeDir:      \(w)") }
+        let agentNames = (config.agents ?? ["copilot", "claude-code"])
+            .map { $0 == "copilot" ? "Copilot CLI" : "Claude Code" }
+            .joined(separator: ", ")
+        print("   agents:           \(agentNames)")
         print()
         print("   Run 'xwt start <branch>' to begin your first task.")
     }
