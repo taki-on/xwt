@@ -4,7 +4,7 @@ Orchestrate git worktrees and iOS Simulators for parallel branch development.
 
 `xwt` lets you spin up an isolated environment per branch — a git worktree, a dedicated iOS Simulator, and a separate DerivedData directory — so you can work on multiple features simultaneously without conflicts.
 
-Designed for use with [XcodeBuildMCP](https://github.com/nicktmro/XcodeBuildMCP) and [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) — `xwt` automatically generates Copilot instruction files so that XcodeBuildMCP picks up the correct simulator and DerivedData path for each worktree without any manual configuration.
+Designed for use with [XcodeBuildMCP](https://github.com/nicktmro/XcodeBuildMCP), [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli), and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — `xwt` automatically generates instruction files so that XcodeBuildMCP picks up the correct simulator and DerivedData path for each worktree without any manual configuration.
 
 ## Installation
 
@@ -94,7 +94,7 @@ Interactively creates or updates the `.xwt.json` configuration file in your repo
 5. **Source simulator** — picks a simulator to copy the keychain from (for auto-login)
 6. **Worktree directory** — base directory for worktrees (default `~/worktrees`)
 
-After saving the config, `xwt init` offers to add `.xwt.json` and the Copilot instructions file to `.gitignore` or `.git/info/exclude`.
+After saving the config, `xwt init` offers to add `.xwt.json` and the generated instruction files to `.gitignore` or `.git/info/exclude`.
 
 If a `.xwt.json` already exists, its values are used as defaults so you can update individual settings without re-entering everything.
 
@@ -107,7 +107,7 @@ Creates a full isolated environment for a branch:
 - Boots the simulator
 - Creates a dedicated DerivedData directory
 - Saves task state to `~/.xwt/`
-- Writes Copilot instructions for XcodeBuildMCP auto-setup
+- Writes Copilot and Claude Code instructions for XcodeBuildMCP auto-setup
 
 | Option | Description | Default |
 |---|---|---|
@@ -212,15 +212,20 @@ Now every `xwt start` will automatically copy the keychain from that simulator t
 | `~/worktrees/<repo>/<slug>/` | Git worktrees |
 | `~/Library/Developer/Xcode/DerivedData/xwt/<slug>/` | Build artifacts |
 
-## Copilot Instructions & XcodeBuildMCP Integration
+## AI Agent Instructions & XcodeBuildMCP Integration
 
-When you run `xwt start`, the tool writes a [Copilot instructions file](https://docs.github.com/copilot/customizing-copilot/adding-repository-instructions-for-github-copilot) into the worktree at:
+When you run `xwt start`, the tool writes instruction files into the worktree for both **Copilot CLI** and **Claude Code**:
 
 ```
-<worktree>/.github/instructions/xwt.instructions.md
+<worktree>/.github/instructions/xwt.instructions.md   (Copilot CLI)
+<worktree>/CLAUDE.local.md                             (Claude Code)
 ```
 
-This file tells Copilot (and XcodeBuildMCP) which simulator and DerivedData path to use for the branch. A generated file looks like this:
+These files tell the AI agent (and XcodeBuildMCP) which simulator and DerivedData path to use for the branch.
+
+### Copilot CLI instructions
+
+The generated Copilot instructions file looks like this:
 
 ```markdown
 ---
@@ -244,15 +249,42 @@ with the following values. Do **not** set `persist: true`.
 
 When Copilot CLI opens a session inside the worktree, it picks up this instruction file automatically and configures XcodeBuildMCP's session defaults — the correct simulator and DerivedData directory are used without any manual steps.
 
+### Claude Code instructions
+
+For Claude Code, `xwt` writes the same session defaults into `CLAUDE.local.md` — the local-only instructions file that Claude Code reads automatically. The content is wrapped in `<!-- xwt:start -->` / `<!-- xwt:end -->` markers so it coexists safely with any existing user instructions in the file.
+
 ### Git exclusion
 
-The instructions file is specific to each developer's local environment (it contains simulator UDIDs and local paths), so it should **not** be committed. `xwt start` automatically adds the file to the repository's `.git/info/exclude`:
+The instructions files are specific to each developer's local environment (they contain simulator UDIDs and local paths), so they should **not** be committed. `xwt start` automatically adds them to the repository's `.git/info/exclude`:
 
 ```
 .github/instructions/xwt.instructions.md
+CLAUDE.local.md
 ```
 
 `.git/info/exclude` works exactly like `.gitignore` but is local to your machine — it won't appear in diffs or affect other contributors, and there is no need to add anything to `.gitignore`.
+
+## Typical Workflow
+
+```bash
+# 1. Start a new task — creates worktree, simulator, and instruction files
+xwt start feature/login-refactor
+
+# 2. Move into the worktree
+cd ~/worktrees/<repo>/feature-login-refactor
+
+# 3. Launch your AI coding agent and develop the feature
+copilot          # GitHub Copilot CLI
+claude           # Claude Code
+# Both auto-detect the correct simulator and DerivedData via the generated instruction files.
+
+# 4. Need a stacked branch? Run xwt start from inside the worktree
+xwt start feature/login-tests
+# → auto-stacks on feature/login-refactor
+
+# 5. When done, clean up the environment
+xwt remove feature/login-refactor
+```
 
 ## Using xwt with GitHub Copilot CLI
 

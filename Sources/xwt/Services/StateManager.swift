@@ -159,4 +159,27 @@ enum StateManager {
         let filePath = dir.appendingPathComponent("xwt.instructions.md")
         try task.copilotInstructionsContent().write(to: filePath, atomically: true, encoding: .utf8)
     }
+
+    // MARK: - Claude Code Instructions
+
+    static func writeClaudeCodeInstructions(_ task: TaskState) throws {
+        let filePath = URL(fileURLWithPath: task.worktreePath)
+            .appendingPathComponent("CLAUDE.local.md")
+        let block = task.claudeCodeInstructionsContent()
+
+        if FileManager.default.fileExists(atPath: filePath.path),
+           var content = try? String(contentsOf: filePath, encoding: .utf8) {
+            // Replace existing xwt block, or append if not found
+            if let startRange = content.range(of: "<!-- xwt:start -->"),
+               let endRange = content.range(of: "<!-- xwt:end -->") {
+                content.replaceSubrange(startRange.lowerBound...endRange.upperBound, with: block)
+            } else {
+                if !content.hasSuffix("\n") { content += "\n" }
+                content += "\n" + block + "\n"
+            }
+            try content.write(to: filePath, atomically: true, encoding: .utf8)
+        } else {
+            try block.write(to: filePath, atomically: true, encoding: .utf8)
+        }
+    }
 }

@@ -145,7 +145,10 @@ struct Start: ParsableCommand {
             // 7. Write Copilot instructions for XcodeBuildMCP auto-setup
             try StateManager.writeCopilotInstructions(task)
 
-            // 8. Exclude generated files from git tracking in the worktree
+            // 8. Write Claude Code instructions for XcodeBuildMCP auto-setup
+            try StateManager.writeClaudeCodeInstructions(task)
+
+            // 9. Exclude generated files from git tracking in the worktree
             excludeFromGit(worktreePath: worktreePath)
 
             print("✅ Task started: \(branch)")
@@ -248,6 +251,7 @@ struct Start: ParsableCommand {
 
         let patterns = [
             ".github/instructions/xwt.instructions.md",
+            "CLAUDE.local.md",
         ]
 
         do {
