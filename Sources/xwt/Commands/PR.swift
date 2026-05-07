@@ -26,7 +26,7 @@ struct PR: ParsableCommand {
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
-            print("❌ No task found for '\(branch)'. Run 'xwt start \(branch)' first.")
+            Terminal.errorLine("no task found for '\(branch)' — run 'xwt start \(branch)' first")
             throw ExitCode.failure
         }
 
@@ -34,12 +34,11 @@ struct PR: ParsableCommand {
         let baseBranch = task.parentBranch ?? StateManager.detectMainBranch(repoRoot: repoRoot)
 
         // Push branch
-        print("📤 Pushing '\(task.branch)' to remote...")
+        Terminal.out(.info, "  › Pushing '\(task.branch)' to remote…")
         do {
             try ShellRunner.run("git", "-C", task.worktreePath, "push", "-u", "origin", task.branch)
         } catch {
-            print("   ⚠ Push failed: \(error)")
-            print("   Continuing with PR creation (branch may already be pushed)...")
+            Terminal.warningLine("push failed (\(error)) — continuing with PR creation; branch may already be pushed")
         }
 
         // Build gh pr create arguments
@@ -51,9 +50,9 @@ struct PR: ParsableCommand {
         if let body { args += ["--body", body] }
         if !fill && title == nil { args.append("--fill") }
 
-        print("🔀 Creating PR: \(task.branch) → \(baseBranch)")
+        Terminal.out(.info, "  › Creating PR: \(task.branch) → \(baseBranch)")
         if task.parentBranch != nil {
-            print("   ↳ Stacked PR (base is parent branch, not main)")
+            Terminal.out(.muted, "    ↳ stacked PR (base is parent branch, not main)")
         }
 
         // Run gh from the worktree so it picks up the correct repo

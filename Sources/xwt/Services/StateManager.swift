@@ -56,7 +56,7 @@ enum StateManager {
                     let data = try Data(contentsOf: url)
                     return try decoder.decode(TaskState.self, from: data)
                 } catch {
-                    print("⚠ Skipping corrupt task state \(url.lastPathComponent): \(error.localizedDescription)")
+                    Terminal.warningLine("skipping corrupt task state \(url.lastPathComponent): \(error.localizedDescription)")
                     return nil
                 }
             }

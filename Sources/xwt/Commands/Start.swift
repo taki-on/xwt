@@ -42,10 +42,9 @@ struct Start: ParsableCommand {
         // Check for existing task (with slug collision detection)
         if let existing = try StateManager.find(repo: repo, branchOrSlug: branch) {
             if existing.branch == branch {
-                print("⚠ Task already exists for '\(existing.branch)'. Use 'xwt remove \(branch)' first.")
+                Terminal.errorLine("task already exists for '\(existing.branch)' — use 'xwt remove \(branch)' first")
             } else {
-                print("⚠ Branch '\(branch)' conflicts with existing task for '\(existing.branch)' (both resolve to slug '\(slug)').")
-                print("  Remove the existing task first: 'xwt remove \(existing.branch)'")
+                Terminal.errorLine("branch '\(branch)' conflicts with existing task for '\(existing.branch)' (both resolve to slug '\(slug)') — remove the existing task first: 'xwt remove \(existing.branch)'")
             }
             throw ExitCode.failure
         }
@@ -79,10 +78,15 @@ struct Start: ParsableCommand {
         do {
             // 1. Create worktree (from base branch if stacking)
             if let baseInfo = resolvedBase {
-                print("🔗 Stacking on '\(baseInfo.branch)'\(baseInfo.autoDetected ? " (auto-detected from current worktree)" : "")")
+                let detected = baseInfo.autoDetected ? " (auto-detected from current worktree)" : ""
+                Terminal.out(.info, "  › Stacking on '\(baseInfo.branch)'\(detected)")
             }
-            print("📂 Creating worktree at \(worktreePath)...")
-            try WorktreeService.add(repoRoot: mainRepoRoot, branch: branch, path: worktreePath, baseBranch: resolvedBase?.branch)
+            try Spinner.around(
+                "Creating worktree at \(worktreePath)",
+                final: "Worktree created at \(worktreePath)"
+            ) {
+                try WorktreeService.add(repoRoot: mainRepoRoot, branch: branch, path: worktreePath, baseBranch: resolvedBase?.branch)
+            }
             createdWorktree = true
 
             let udid: String
@@ -90,18 +94,25 @@ struct Start: ParsableCommand {
             if let sharedUDID = parentSimUDID {
                 // Sharing parent's simulator — no creation or keychain copy needed
                 udid = sharedUDID
-                print("📱 Sharing simulator '\(simName)' from '\(resolvedBase!.branch)'")
-                print("   ↳ Simulator \(udid)")
-                print("   ↳ DerivedData \(derivedDataPath)")
+                Terminal.out(.info, "  › Sharing simulator '\(simName)' from '\(resolvedBase!.branch)'")
+                Terminal.out(.muted, "    ↳ simulator \(udid)")
+                Terminal.out(.muted, "    ↳ derived data \(derivedDataPath)")
             } else {
                 // 2. Create or reuse simulator (CLI flags override .xwt.json)
                 let deviceType = device ?? config.deviceType!
                 let runtimeStr = self.runtime ?? config.runtime!
-                print("📱 Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))...")
-                let (newUDID, reused) = try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
-                udid = newUDID
-                if !reused { createdSimulatorUDID = udid }
-                print(reused ? "   ↳ Reusing existing simulator \(udid)" : "   ↳ Created new simulator \(udid)")
+                let result = try Spinner.around(
+                    "Setting up simulator '\(simName)' (\(deviceType), \(runtimeStr))"
+                ) {
+                    try SimulatorService.createOrReuse(name: simName, deviceType: deviceType, runtime: runtimeStr)
+                }
+                udid = result.udid
+                if !result.reused { createdSimulatorUDID = udid }
+                let action = result.reused ? "Reused existing simulator" : "Created new simulator"
+                Terminal.out(.muted, "    ↳ \(action) \(udid)")
+                if let mismatch = result.runtimeMismatch {
+                    Terminal.warningLine(mismatch)
+                }
 
                 // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator)
                 if !noCopyAuth {
@@ -119,8 +130,9 @@ struct Start: ParsableCommand {
 
             // 5. Boot simulator (idempotent — no-op if already booted)
             if !noBoot {
-                print("🚀 Booting simulator...")
-                try SimulatorService.boot(udid: udid)
+                try Spinner.around("Booting simulator", final: "Simulator booted") {
+                    try SimulatorService.boot(udid: udid)
+                }
             }
 
             // 6. Save task state
@@ -154,18 +166,21 @@ struct Start: ParsableCommand {
             // 8. Exclude generated files from git tracking in the worktree
             excludeFromGit(worktreePath: worktreePath)
 
-            print("✅ Task started: \(branch)")
-            print("   Worktree:     \(worktreePath)")
-            print("   Simulator:    \(simName) (\(udid))\(shareResources ? " (shared)" : "")")
-            print("   DerivedData:  \(derivedDataPath)\(shareResources ? " (shared)" : "")")
+            Terminal.out()
+            Terminal.out(.success, "  ✓ Task started: \(branch)")
+            let sharedTag = shareResources ? Terminal.styled(" (shared)", .muted) : ""
+            Terminal.out("    Worktree:     \(worktreePath)")
+            Terminal.out("    Simulator:    \(simName) \(Terminal.styled("(\(udid))", .muted))\(sharedTag)")
+            Terminal.out("    DerivedData:  \(derivedDataPath)\(sharedTag)")
             if let baseInfo = resolvedBase {
-                print("   Base:         \(baseInfo.branch)")
+                Terminal.out("    Base:         \(baseInfo.branch)")
             }
-            print("")
-            print("   cd \(worktreePath)")
+            Terminal.out()
+            Terminal.out(.muted, "    cd \(worktreePath)")
         } catch {
             // Rollback on failure — never delete parent's shared resources
-            print("\n⚠ Task setup failed, rolling back...")
+            Terminal.err()
+            Terminal.warningLine("task setup failed, rolling back…")
             try? StateManager.delete(repo: repo, slug: slug)
             if let simUDID = createdSimulatorUDID {
                 try? SimulatorService.shutdown(udid: simUDID)
@@ -219,12 +234,12 @@ struct Start: ParsableCommand {
     private func copyKeychain(from sourceID: String, to targetUDID: String) {
         do {
             let source = try SimulatorService.resolve(sourceID)
-            print("🔑 Copying keychain from '\(source.name)' (\(source.udid))...")
+            Terminal.out(.info, "  › Copying keychain from '\(source.name)' \(Terminal.styled("(\(source.udid))", .muted))")
 
             // If source is booted, shut it down to flush WAL, then reboot after copy
             let wasBooted = source.isBooted
             if wasBooted {
-                print("   ↳ Shutting down source simulator to flush keychain...")
+                Terminal.out(.muted, "    ↳ shutting down source simulator to flush keychain")
                 try SimulatorService.shutdown(udid: source.udid)
                 // Brief pause for WAL checkpoint
                 Thread.sleep(forTimeInterval: 1)
@@ -233,21 +248,21 @@ struct Start: ParsableCommand {
             try SimulatorService.copyKeychain(from: source.udid, to: targetUDID)
 
             if wasBooted {
-                print("   ↳ Rebooting source simulator...")
+                Terminal.out(.muted, "    ↳ rebooting source simulator")
                 try SimulatorService.boot(udid: source.udid)
             }
 
-            print("   ↳ Keychain copied successfully")
+            Terminal.out(.muted, "    ↳ keychain copied successfully")
         } catch {
-            print("   ⚠ Could not copy keychain: \(error)")
-            print("   ↳ You may need to log in manually on the new simulator.")
+            Terminal.warningLine("could not copy keychain: \(error)")
+            Terminal.err(.muted, "    ↳ you may need to log in manually on the new simulator")
         }
     }
 
     /// Add xwt-generated files to the repo's `.git/info/exclude` so they are never tracked.
     private func excludeFromGit(worktreePath: String) {
         guard let commonDir = try? ShellRunner.run("git", "-C", worktreePath, "rev-parse", "--git-common-dir") else {
-            print("   ⚠ Could not resolve git common dir")
+            Terminal.warningLine("could not resolve git common dir")
             return
         }
         let excludeURL = URL(fileURLWithPath: commonDir).appendingPathComponent("info/exclude")
@@ -279,7 +294,7 @@ struct Start: ParsableCommand {
 
             try content.write(to: excludeURL, atomically: true, encoding: .utf8)
         } catch {
-            print("   ⚠ Could not update .git/info/exclude: \(error.localizedDescription)")
+            Terminal.warningLine("could not update .git/info/exclude: \(error.localizedDescription)")
         }
     }
 }

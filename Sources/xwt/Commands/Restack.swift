@@ -17,7 +17,7 @@ struct Restack: ParsableCommand {
 
         if let branch {
             guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
-                print("❌ No task found for '\(branch)'.")
+                Terminal.errorLine("no task found for '\(branch)'")
                 throw ExitCode.failure
             }
             let descendants = try StateManager.findDescendants(repo: repo, slug: task.slug)
@@ -31,44 +31,46 @@ struct Restack: ParsableCommand {
         }
 
         guard !tasksToRestack.isEmpty else {
-            print("No stacked branches to restack.")
+            Terminal.out("No stacked branches to restack.")
             return
         }
 
         // Preflight: validate all worktrees exist and are clean
         for task in tasksToRestack {
             guard FileManager.default.fileExists(atPath: task.worktreePath) else {
-                print("❌ Worktree missing for '\(task.branch)' at \(task.worktreePath)")
-                print("   Cannot restack. Remove and recreate the task first.")
+                Terminal.errorLine("worktree missing for '\(task.branch)' at \(task.worktreePath) — cannot restack; remove and recreate the task first")
                 throw ExitCode.failure
             }
             let status = try ShellRunner.run("git", "-C", task.worktreePath, "status", "--porcelain")
             if !status.isEmpty {
-                print("❌ Worktree for '\(task.branch)' has uncommitted changes:")
-                print("   \(task.worktreePath)")
-                print("   Commit or stash changes before restacking.")
+                Terminal.errorLine("worktree for '\(task.branch)' has uncommitted changes at \(task.worktreePath) — commit or stash before restacking")
                 throw ExitCode.failure
             }
         }
 
-        print("🔄 Restacking \(tasksToRestack.count) branch\(tasksToRestack.count == 1 ? "" : "es")...\n")
+        let count = tasksToRestack.count
+        Terminal.out(.heading, "Restacking \(count) branch\(count == 1 ? "" : "es")")
+        Terminal.out()
 
         for task in tasksToRestack {
             guard let parentBranch = task.parentBranch else { continue }
-            print("  ↻ Rebasing '\(task.branch)' onto '\(parentBranch)'...")
-
             do {
-                try ShellRunner.run("git", "-C", task.worktreePath, "rebase", parentBranch)
-                print("    ✓ Done")
+                try Spinner.around(
+                    "Rebasing '\(task.branch)' onto '\(parentBranch)'",
+                    final: "Rebased '\(task.branch)' onto '\(parentBranch)'"
+                ) {
+                    try ShellRunner.run("git", "-C", task.worktreePath, "rebase", parentBranch)
+                }
             } catch {
-                print("    ❌ Rebase conflict!")
-                print("    Resolve conflicts in: \(task.worktreePath)")
-                print("    Then run: git -C \(task.worktreePath) rebase --continue")
-                print("    And re-run: xwt restack \(task.branch)")
+                Terminal.errorLine("rebase conflict in \(task.worktreePath)")
+                Terminal.err(.muted, "    Resolve conflicts, then run:")
+                Terminal.err(.muted, "      git -C \(task.worktreePath) rebase --continue")
+                Terminal.err(.muted, "      xwt restack \(task.branch)")
                 throw ExitCode.failure
             }
         }
 
-        print("\n✅ Restack complete.")
+        Terminal.out()
+        Terminal.out(.success, "  ✓ Restack complete")
     }
 }

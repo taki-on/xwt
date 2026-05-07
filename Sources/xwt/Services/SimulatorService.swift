@@ -87,19 +87,26 @@ enum SimulatorService {
         return udid
     }
 
-    /// Create or reuse a simulator. Warns if a reused simulator has a different runtime.
-    static func createOrReuse(name: String, deviceType: String, runtime: String) throws -> (udid: String, reused: Bool) {
+    /// Create or reuse a simulator. The returned `runtimeMismatch` string is
+    /// non-nil when an existing simulator is reused but its installed runtime
+    /// does not match the requested one — callers should surface that as a
+    /// warning at a point in their output flow that doesn't conflict with a
+    /// spinner.
+    static func createOrReuse(
+        name: String,
+        deviceType: String,
+        runtime: String
+    ) throws -> (udid: String, reused: Bool, runtimeMismatch: String?) {
         if let existing = try find(name: name) {
             let expectedRuntime = runtimeIdentifier(runtime)
             if existing.runtime != expectedRuntime {
-                print("   ⚠ Reused simulator has runtime \(existing.runtime),")
-                print("     but requested \(expectedRuntime).")
-                print("     To recreate: 'xwt remove <branch>' then 'xwt start <branch>'.")
+                let mismatch = "reused simulator has runtime \(existing.runtime), but requested \(expectedRuntime). To recreate: 'xwt remove <branch>' then 'xwt start <branch>'"
+                return (existing.udid, true, mismatch)
             }
-            return (existing.udid, true)
+            return (existing.udid, true, nil)
         }
         let udid = try create(name: name, deviceType: deviceType, runtime: runtime)
-        return (udid, false)
+        return (udid, false, nil)
     }
 
     /// Boot a simulator by UDID.

@@ -18,7 +18,7 @@ struct List: ParsableCommand {
         }
 
         guard !repos.isEmpty else {
-            print("No active tasks.")
+            Terminal.out("No active tasks.")
             return
         }
 
@@ -30,14 +30,15 @@ struct List: ParsableCommand {
         formatter.timeStyle = .short
 
         var totalTasks = 0
+        let separatorWidth = min(Terminal.terminalWidth(), 80)
 
         for repoName in repos.sorted() {
             let tasks = try StateManager.listAll(repo: repoName)
             guard !tasks.isEmpty else { continue }
             totalTasks += tasks.count
 
-            print("📦 \(repoName)")
-            print(String(repeating: "─", count: 80))
+            Terminal.out(.heading, "📦 \(repoName)")
+            Terminal.out(.muted, String(repeating: "─", count: separatorWidth))
 
             let hasStacks = tasks.contains { $0.parentSlug != nil }
             if hasStacks {
@@ -50,7 +51,7 @@ struct List: ParsableCommand {
         }
 
         if totalTasks == 0 {
-            print("No active tasks.")
+            Terminal.out("No active tasks.")
         }
     }
 
@@ -68,7 +69,7 @@ struct List: ParsableCommand {
             let childPrefix = isLast ? "      " : "  │   "
             printTaskNode(root, prefix: prefix, childPrefix: childPrefix, byParent: byParent, devices: devices, formatter: formatter)
         }
-        print()
+        Terminal.out()
     }
 
     private func printTaskNode(
@@ -80,7 +81,10 @@ struct List: ParsableCommand {
         formatter: DateFormatter
     ) {
         let status = simulatorStatus(task: task, devices: devices)
-        print("\(prefix)\(task.branch) (\(task.simulatorName), \(status))")
+        let mutedPrefix = Terminal.styled(prefix, .muted)
+        let branch = Terminal.styled(task.branch, .highlight)
+        let sim = Terminal.styled("(\(task.simulatorName), \(status))", .muted)
+        Terminal.out("\(mutedPrefix)\(branch) \(sim)")
 
         let children = (byParent[task.slug] ?? []).sorted(by: { $0.createdAt < $1.createdAt })
         for (j, child) in children.enumerated() {
@@ -97,20 +101,32 @@ struct List: ParsableCommand {
         let bootedStatus = simulatorStatus(task: task, devices: devices)
         let dateStr = formatter.string(from: task.createdAt)
 
-        print("  \(task.branch)")
-        print("    Worktree:   \(task.worktreePath)")
-        print("    Simulator:  \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…) \(bootedStatus)")
-        print("    Created:    \(dateStr)")
+        Terminal.out("  \(Terminal.styled(task.branch, .highlight))")
+
+        var rows: [(String, String)] = [
+            ("Worktree",  task.worktreePath),
+            ("Simulator", "\(task.simulatorName) \(Terminal.styled("(\(task.simulatorUDID.prefix(8))…)", .muted)) \(bootedStatus)"),
+            ("Created",   Terminal.styled(dateStr, .muted)),
+        ]
         if let parent = task.parentBranch {
-            print("    Base:       \(parent)")
+            rows.append(("Base", parent))
         }
-        print()
+
+        let keyWidth = rows.map { $0.0.visibleWidth }.max() ?? 0
+        for (key, value) in rows {
+            let padding = String(repeating: " ", count: keyWidth - key.visibleWidth + 2)
+            let styledKey = Terminal.styled(key + ":", .muted)
+            Terminal.out("    \(styledKey)\(padding)\(value)")
+        }
+        Terminal.out()
     }
 
     private func simulatorStatus(task: TaskState, devices: [String: SimulatorInfo]) -> String {
         if let info = SimulatorService.findByUDID(task.simulatorUDID, in: devices) {
-            return info.isBooted ? "🟢 Booted" : "⚪ Shutdown"
+            return info.isBooted
+                ? "🟢 \(Terminal.styled("Booted", .success))"
+                : "⚪ \(Terminal.styled("Shutdown", .muted))"
         }
-        return "❌ Not found"
+        return "❌ \(Terminal.styled("Not found", .failure))"
     }
 }

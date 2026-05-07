@@ -29,7 +29,7 @@ struct Remove: ParsableCommand {
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
-            print("❌ No task found for '\(branch)'.")
+            Terminal.errorLine("no task found for '\(branch)'")
             throw ExitCode.failure
         }
 
@@ -37,13 +37,13 @@ struct Remove: ParsableCommand {
 
         // Warn about children if neither --reparent nor --cascade
         if !children.isEmpty && !reparent && !cascade {
-            print("⚠ Task '\(task.branch)' has \(children.count) child branch\(children.count == 1 ? "" : "es"):")
+            Terminal.errorLine("task '\(task.branch)' has \(children.count) child branch\(children.count == 1 ? "" : "es"):")
             for child in children {
-                print("  • \(child.branch)")
+                Terminal.err(.muted, "  • \(child.branch)")
             }
-            print()
-            print("Use --reparent to re-point children to '\(task.parentBranch ?? "root")',")
-            print("or --cascade to remove this task and all descendants.")
+            Terminal.err("")
+            Terminal.err(.muted, "Use --reparent to re-point children to '\(task.parentBranch ?? "root")',")
+            Terminal.err(.muted, "or --cascade to remove this task and all descendants.")
             throw ExitCode.failure
         }
 
@@ -55,24 +55,24 @@ struct Remove: ParsableCommand {
             let allRemoving = [task] + descendants
             let removingSlugs = Set(allRemoving.map(\.slug))
             if !force {
-                print("About to remove \(allRemoving.count) task(s):")
-                for t in allRemoving { print("  • \(t.branch)") }
-                print()
-                print("Continue? [y/N] ", terminator: "")
-                guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
-                    print("Cancelled.")
+                Terminal.out(.heading, "About to remove \(allRemoving.count) task(s):")
+                for t in allRemoving { Terminal.out("  • \(t.branch)") }
+                Terminal.out()
+                if !confirm("Continue?") {
+                    Terminal.out("Cancelled.")
                     return
                 }
             }
             for t in allRemoving.reversed() {
                 removeSingleTask(t, repoRoot: repoRoot, repo: repo, allTasks: allTasks, removingSlugs: removingSlugs)
             }
-            print("✅ Removed \(allRemoving.count) task(s).")
+            Terminal.out()
+            Terminal.out(.success, "  ✓ Removed \(allRemoving.count) task(s)")
             return
         }
 
         if reparent && !children.isEmpty {
-            print("🔄 Re-parenting \(children.count) child branch\(children.count == 1 ? "" : "es")...")
+            Terminal.out(.info, "  › Re-parenting \(children.count) child branch\(children.count == 1 ? "" : "es")…")
             for child in children {
                 let updated = TaskState(
                     repo: child.repo,
@@ -91,7 +91,7 @@ struct Remove: ParsableCommand {
                     parentSlug: task.parentSlug
                 )
                 try StateManager.save(updated)
-                print("   ↳ \(child.branch) → base: \(task.parentBranch ?? "root")")
+                Terminal.out(.muted, "    ↳ \(child.branch) → base: \(task.parentBranch ?? "root")")
             }
         }
 
@@ -101,32 +101,41 @@ struct Remove: ParsableCommand {
         let ddShared = isDerivedDataShared(task: task, allTasks: allTasks, removingSlugs: removingSlugs)
 
         if !force {
-            print("About to remove task for '\(task.branch)':")
-            print("  Worktree:    \(task.worktreePath)")
-            print("  Simulator:   \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…)")
+            Terminal.out(.heading, "About to remove task for '\(task.branch)':")
+            Terminal.out("  Worktree:    \(task.worktreePath)")
+            Terminal.out("  Simulator:   \(task.simulatorName) (\(task.simulatorUDID.prefix(8))…)")
             if simShared {
-                print("  ℹ Will keep simulator — still used by other tasks")
+                Terminal.out(.muted, "    will keep simulator — still used by other tasks")
             } else if keepSimulator {
-                print("  ℹ Will only shutdown simulator (--keep-simulator)")
+                Terminal.out(.muted, "    will only shutdown simulator (--keep-simulator)")
             } else {
-                print("  🗑 Will DELETE simulator")
+                Terminal.out(.muted, "    will DELETE simulator")
             }
             if ddShared {
-                print("  ℹ Will keep derived data — still used by other tasks")
+                Terminal.out(.muted, "    will keep derived data — still used by other tasks")
             } else if keepDerivedData {
-                print("  ℹ Will keep derived data (--keep-derived-data)")
+                Terminal.out(.muted, "    will keep derived data (--keep-derived-data)")
             } else {
-                print("  🧹 Will remove derived data at \(task.derivedDataPath)")
+                Terminal.out(.muted, "    will remove derived data at \(task.derivedDataPath)")
             }
-            print()
-            print("Continue? [y/N] ", terminator: "")
-            guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
-                print("Cancelled.")
+            Terminal.out()
+            if !confirm("Continue?") {
+                Terminal.out("Cancelled.")
                 return
             }
         }
 
         removeSingleTask(task, repoRoot: repoRoot, repo: repo, allTasks: allTasks, removingSlugs: removingSlugs)
+    }
+
+    /// Read a yes/no answer from stdin. Default is "no" — only `y` / `yes`
+    /// (case-insensitive) confirms.
+    private func confirm(_ prompt: String) -> Bool {
+        Terminal.write("\(prompt) [y/N] ")
+        guard let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() else {
+            return false
+        }
+        return answer == "y" || answer == "yes"
     }
 
     /// Check if any task outside the removal set shares this task's simulator.
@@ -146,47 +155,58 @@ struct Remove: ParsableCommand {
         var warnings: [String] = []
 
         if simShared {
-            print("ℹ Keeping simulator '\(task.simulatorName)' — still used by other tasks.")
+            Terminal.out(.muted, "  · keeping simulator '\(task.simulatorName)' — still used by other tasks")
         } else {
-            print("📱 Shutting down simulator '\(task.simulatorName)'...")
-            try? SimulatorService.shutdown(udid: task.simulatorUDID)
+            do {
+                try Spinner.around(
+                    "Shutting down simulator '\(task.simulatorName)'",
+                    final: "Simulator '\(task.simulatorName)' shut down"
+                ) {
+                    try SimulatorService.shutdown(udid: task.simulatorUDID)
+                }
+            } catch {
+                // shutdown is already best-effort; ignore
+            }
 
             if !keepSimulator {
-                print("🗑  Deleting simulator...")
                 do {
-                    try SimulatorService.delete(udid: task.simulatorUDID)
+                    try Spinner.around("Deleting simulator", final: "Simulator deleted") {
+                        try SimulatorService.delete(udid: task.simulatorUDID)
+                    }
                 } catch {
-                    warnings.append("Could not delete simulator \(task.simulatorUDID): \(error)")
+                    warnings.append("could not delete simulator \(task.simulatorUDID): \(error)")
                 }
             }
         }
 
-        print("📂 Removing worktree...")
         do {
-            try WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
+            try Spinner.around("Removing worktree", final: "Worktree removed") {
+                try WorktreeService.remove(repoRoot: repoRoot, path: task.worktreePath)
+            }
         } catch {
-            warnings.append("Could not remove worktree at \(task.worktreePath): \(error)")
+            warnings.append("could not remove worktree at \(task.worktreePath): \(error)")
         }
 
         if ddShared {
-            print("ℹ Keeping derived data — still used by other tasks.")
+            Terminal.out(.muted, "  · keeping derived data — still used by other tasks")
         } else if !keepDerivedData {
-            print("🧹 Cleaning derived data...")
             do {
-                try FileManager.default.removeItem(atPath: task.derivedDataPath)
+                try Spinner.around("Cleaning derived data", final: "Derived data cleaned") {
+                    try FileManager.default.removeItem(atPath: task.derivedDataPath)
+                }
             } catch {
-                warnings.append("Could not remove derived data at \(task.derivedDataPath): \(error)")
+                warnings.append("could not remove derived data at \(task.derivedDataPath): \(error)")
             }
         }
 
         try? StateManager.delete(repo: repo, slug: task.slug)
 
         if warnings.isEmpty {
-            print("✅ Task '\(task.branch)' removed.")
+            Terminal.out(.success, "  ✓ Task '\(task.branch)' removed")
         } else {
-            print("⚠ Task '\(task.branch)' removed with warnings:")
+            Terminal.warningLine("task '\(task.branch)' removed with warnings:")
             for warning in warnings {
-                print("  • \(warning)")
+                Terminal.err(.muted, "  • \(warning)")
             }
         }
     }

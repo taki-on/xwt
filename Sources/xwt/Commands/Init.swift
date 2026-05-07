@@ -11,7 +11,8 @@ struct Init: ParsableCommand {
         let repoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
 
-        print("🚀 Initializing xwt for '\(repo)'\n")
+        Terminal.out(.heading, "Initializing xwt for '\(repo)'")
+        Terminal.out()
 
         // Load existing config as defaults
         var config: RepoConfig
@@ -22,8 +23,8 @@ struct Init: ParsableCommand {
                 config = RepoConfig()
             }
         } catch {
-            print("⚠ Existing .xwt.json could not be parsed: \(error)")
-            print("  Starting with empty defaults.\n")
+            Terminal.warningLine("existing .xwt.json could not be parsed: \(error) — starting with empty defaults")
+            Terminal.out()
             config = RepoConfig()
         }
 
@@ -49,12 +50,13 @@ struct Init: ParsableCommand {
         config = configureAgents(config: config)
 
         // Write config
-        print()
+        Terminal.out()
         try config.save(to: repoRoot)
 
         let configPath = URL(fileURLWithPath: repoRoot)
             .appendingPathComponent(RepoConfig.fileName).path
-        print("✅ Configuration saved to \(configPath)\n")
+        Terminal.out(.success, "  ✓ Configuration saved to \(configPath)")
+        Terminal.out()
 
         // 7. Git exclusions
         configureGitExclusions(repoRoot: repoRoot)
@@ -122,7 +124,7 @@ struct Init: ParsableCommand {
             }
         }
 
-        print()
+        Terminal.out()
         return config
     }
 
@@ -159,32 +161,32 @@ struct Init: ParsableCommand {
             )
         }
 
-        print()
+        Terminal.out()
         return config
     }
 
     private func detectSchemes(flag: String, value: String, repoRoot: String) -> [String] {
-        print("   Detecting schemes...")
         let absolutePath = URL(fileURLWithPath: repoRoot)
             .appendingPathComponent(value).path
         do {
-            let output = try ShellRunner.run(
-                "xcodebuild", flag, absolutePath, "-list"
-            )
+            let output = try Spinner.around("Detecting schemes", final: "Detected schemes") {
+                try ShellRunner.run("xcodebuild", flag, absolutePath, "-list")
+            }
             return parseSchemes(from: output)
         } catch {
-            print("   ⚠ Could not detect schemes: \(error)")
+            Terminal.warningLine("could not detect schemes: \(error)")
             return []
         }
     }
 
     private func detectPackageSchemes(repoRoot: String) -> [String] {
-        print("   Detecting schemes...")
         do {
-            let output = try ShellRunner.run(["xcodebuild", "-list"], cwd: repoRoot)
+            let output = try Spinner.around("Detecting schemes", final: "Detected schemes") {
+                try ShellRunner.run(["xcodebuild", "-list"], cwd: repoRoot)
+            }
             return parseSchemes(from: output)
         } catch {
-            print("   ⚠ Could not detect schemes: \(error)")
+            Terminal.warningLine("could not detect schemes: \(error)")
             return []
         }
     }
@@ -216,12 +218,12 @@ struct Init: ParsableCommand {
         do {
             deviceTypes = try detectDeviceTypes()
         } catch {
-            print("   ⚠ Could not detect device types: \(error)")
+            Terminal.warningLine("could not detect device types: \(error)")
             config.deviceType = Prompt.input(
                 prompt: "📱 Device type (e.g. 'iPhone 16 Pro')",
                 defaultValue: config.deviceType ?? "iPhone 17 Pro"
             )
-            print()
+            Terminal.out()
             return config
         }
 
@@ -237,7 +239,7 @@ struct Init: ParsableCommand {
         )
         config.deviceType = selected
 
-        print()
+        Terminal.out()
         return config
     }
 
@@ -255,7 +257,12 @@ struct Init: ParsableCommand {
     }
 
     private func detectDeviceTypes() throws -> [DeviceTypeInfo] {
-        let output = try ShellRunner.run("xcrun", "simctl", "list", "devicetypes", "--json")
+        let output = try Spinner.around(
+            "Detecting iPhone device types",
+            final: "Detected iPhone device types"
+        ) {
+            try ShellRunner.run("xcrun", "simctl", "list", "devicetypes", "--json")
+        }
         guard let data = output.data(using: .utf8) else { return [] }
         let list = try JSONDecoder().decode(DeviceTypeList.self, from: data)
         return list.devicetypes
@@ -272,12 +279,12 @@ struct Init: ParsableCommand {
         do {
             runtimes = try detectRuntimes()
         } catch {
-            print("   ⚠ Could not detect runtimes: \(error)")
+            Terminal.warningLine("could not detect runtimes: \(error)")
             config.runtime = Prompt.input(
                 prompt: "🖥  iOS runtime (e.g. 'iOS 18.2')",
                 defaultValue: config.runtime ?? "iOS 26.4"
             )
-            print()
+            Terminal.out()
             return config
         }
 
@@ -293,7 +300,7 @@ struct Init: ParsableCommand {
         )
         config.runtime = selected
 
-        print()
+        Terminal.out()
         return config
     }
 
@@ -312,7 +319,12 @@ struct Init: ParsableCommand {
     }
 
     private func detectRuntimes() throws -> [RuntimeInfo] {
-        let output = try ShellRunner.run("xcrun", "simctl", "list", "runtimes", "--json")
+        let output = try Spinner.around(
+            "Detecting iOS runtimes",
+            final: "Detected iOS runtimes"
+        ) {
+            try ShellRunner.run("xcrun", "simctl", "list", "runtimes", "--json")
+        }
         guard let data = output.data(using: .utf8) else { return [] }
         let list = try JSONDecoder().decode(RuntimeList.self, from: data)
         return list.runtimes
@@ -352,7 +364,7 @@ struct Init: ParsableCommand {
             config.sourceSimulator = nil
         }
 
-        print()
+        Terminal.out()
         return config
     }
 
@@ -385,14 +397,15 @@ struct Init: ParsableCommand {
         let labels = ["Copilot CLI", "Claude Code"]
         let current = config.agents ?? allAgents
 
-        print("🤖 Which AI agents should xwt generate instruction files for?")
-        print("  (Select all that apply)\n")
+        Terminal.out(.heading, "🤖 Which AI agents should xwt generate instruction files for?")
+        Terminal.out(.muted, "  (Select all that apply)")
+        Terminal.out()
 
         var selected: [String] = []
         for (i, agent) in allAgents.enumerated() {
             let isDefault = current.contains(agent)
             let defaultLabel = isDefault ? " [Y/n]" : " [y/N]"
-            print("  \(labels[i])?\(defaultLabel) ", terminator: "")
+            Terminal.write("  \(labels[i])?\(defaultLabel) ")
             let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
             if answer.isEmpty {
                 if isDefault { selected.append(agent) }
@@ -402,7 +415,7 @@ struct Init: ParsableCommand {
         }
 
         if selected.isEmpty {
-            print("  ⚠ No agents selected — defaulting to all.")
+            Terminal.warningLine("no agents selected — defaulting to all")
             selected = allAgents
         }
 
@@ -413,7 +426,7 @@ struct Init: ParsableCommand {
             config.agents = selected
         }
 
-        print()
+        Terminal.out()
         return config
     }
 
@@ -437,11 +450,11 @@ struct Init: ParsableCommand {
 
         for (pattern, label) in files {
             if isPatternPresent(pattern, in: gitignoreURL) {
-                print("   ℹ \(pattern) already in .gitignore")
+                Terminal.out(.muted, "  · \(pattern) already in .gitignore")
                 continue
             }
             if let excludeURL, isPatternPresent(pattern, in: excludeURL) {
-                print("   ℹ \(pattern) already in .git/info/exclude")
+                Terminal.out(.muted, "  · \(pattern) already in .git/info/exclude")
                 continue
             }
 
@@ -457,13 +470,13 @@ struct Init: ParsableCommand {
             if let selected {
                 if selected.hasPrefix(".gitignore") {
                     appendPatternToFile(pattern, fileURL: gitignoreURL)
-                    print("   ↳ Added to .gitignore")
+                    Terminal.out(.muted, "    ↳ added to .gitignore")
                 } else if let excludeURL {
                     appendPatternToFile(pattern, fileURL: excludeURL)
-                    print("   ↳ Added to .git/info/exclude")
+                    Terminal.out(.muted, "    ↳ added to .git/info/exclude")
                 }
             }
-            print()
+            Terminal.out()
         }
     }
 
@@ -508,27 +521,36 @@ struct Init: ParsableCommand {
             content += pattern + "\n"
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
         } catch {
-            print("   ⚠ Could not update \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            Terminal.warningLine("could not update \(fileURL.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
     // MARK: - Summary
 
     private func printSummary(_ config: RepoConfig) {
-        print("\n   Summary:")
-        if let w = config.workspace { print("   workspace:        \(w)") }
-        if let p = config.project { print("   project:          \(p)") }
-        if let pkg = config.package { print("   package:          \(pkg)") }
-        if let s = config.scheme { print("   scheme:           \(s)") }
-        if let d = config.deviceType { print("   deviceType:       \(d)") }
-        if let r = config.runtime { print("   runtime:          \(r)") }
-        if let s = config.sourceSimulator { print("   sourceSimulator:  \(s)") }
-        if let w = config.worktreeDir { print("   worktreeDir:      \(w)") }
+        var rows: [(String, String)] = []
+        if let w = config.workspace        { rows.append(("workspace",        w)) }
+        if let p = config.project          { rows.append(("project",          p)) }
+        if let pkg = config.package        { rows.append(("package",          pkg)) }
+        if let s = config.scheme           { rows.append(("scheme",           s)) }
+        if let d = config.deviceType       { rows.append(("deviceType",       d)) }
+        if let r = config.runtime          { rows.append(("runtime",          r)) }
+        if let s = config.sourceSimulator  { rows.append(("sourceSimulator",  s)) }
+        if let w = config.worktreeDir      { rows.append(("worktreeDir",      w)) }
         let agentNames = (config.agents ?? ["copilot", "claude-code"])
             .map { $0 == "copilot" ? "Copilot CLI" : "Claude Code" }
             .joined(separator: ", ")
-        print("   agents:           \(agentNames)")
-        print()
-        print("   Run 'xwt start <branch>' to begin your first task.")
+        rows.append(("agents", agentNames))
+
+        Terminal.out()
+        Terminal.out(.heading, "  Summary")
+        let keyWidth = rows.map { $0.0.visibleWidth }.max() ?? 0
+        for (key, value) in rows {
+            let padding = String(repeating: " ", count: keyWidth - key.visibleWidth + 2)
+            let styledKey = Terminal.styled(key + ":", .muted)
+            Terminal.out("  \(styledKey)\(padding)\(value)")
+        }
+        Terminal.out()
+        Terminal.out(.muted, "  Run 'xwt start <branch>' to begin your first task.")
     }
 }

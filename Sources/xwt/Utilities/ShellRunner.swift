@@ -6,7 +6,18 @@ enum ShellError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .failed(let cmd, let code, let stderr):
-            return "Command failed (\(code)): \(cmd)\n\(stderr)"
+            // Show the program name (first token), the exit code, and a
+            // trimmed snippet of stderr. ArgumentParser prepends "Error: "
+            // and routes this to stderr already.
+            let program = cmd.split(separator: " ").first.map(String.init) ?? cmd
+            let snippet = stderr
+                .components(separatedBy: .newlines)
+                .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+            let trimmed = snippet.count > 200 ? String(snippet.prefix(200)) + "…" : snippet
+            if trimmed.isEmpty {
+                return "\(program) failed (exit \(code))"
+            }
+            return "\(program) failed (exit \(code)): \(trimmed)"
         }
     }
 }

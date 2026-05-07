@@ -20,13 +20,13 @@ struct Run: ParsableCommand {
         let repo = ConfigLoader.repoName(from: repoRoot)
 
         guard let task = try StateManager.find(repo: repo, branchOrSlug: branch) else {
-            print("❌ No task found for '\(branch)'. Run 'xwt start \(branch)' first.")
+            Terminal.errorLine("no task found for '\(branch)' — run 'xwt start \(branch)' first")
             throw ExitCode.failure
         }
 
         let buildScheme = scheme ?? task.scheme
         guard let buildScheme else {
-            print("❌ No scheme configured. Set 'scheme' in .xwt.json or pass --scheme.")
+            Terminal.errorLine("no scheme configured — set 'scheme' in .xwt.json or pass --scheme")
             throw ExitCode.failure
         }
 
@@ -47,15 +47,16 @@ struct Run: ParsableCommand {
             "build",
         ]
 
-        print("🔨 Building \(buildScheme) for simulator \(task.simulatorName)...")
-        print("   DerivedData: \(task.derivedDataPath)")
-        print("   Destination: \(task.simulatorUDID)")
-        print()
+        Terminal.out(.info, "  › Building \(buildScheme) for simulator \(task.simulatorName)…")
+        Terminal.out(.muted, "    DerivedData: \(task.derivedDataPath)")
+        Terminal.out(.muted, "    Destination: \(task.simulatorUDID)")
+        Terminal.out()
 
         try ShellRunner.exec(args, cwd: task.package != nil ? task.worktreePath : nil)
 
         if buildOnly {
-            print("\n✅ Build succeeded.")
+            Terminal.out()
+            Terminal.out(.success, "  ✓ Build succeeded")
             return
         }
 
@@ -63,13 +64,23 @@ struct Run: ParsableCommand {
         let appPath = try Run.findBuiltApp(derivedDataPath: task.derivedDataPath)
         let bundleID = try Run.readBundleID(appPath: appPath)
 
-        print("\n📲 Installing \(bundleID) on \(task.simulatorName)...")
-        try SimulatorService.install(udid: task.simulatorUDID, appPath: appPath)
+        Terminal.out()
+        try Spinner.around(
+            "Installing \(bundleID) on \(task.simulatorName)",
+            final: "Installed \(bundleID) on \(task.simulatorName)"
+        ) {
+            try SimulatorService.install(udid: task.simulatorUDID, appPath: appPath)
+        }
 
-        print("🚀 Launching \(bundleID)...")
-        try SimulatorService.launch(udid: task.simulatorUDID, bundleID: bundleID)
+        try Spinner.around(
+            "Launching \(bundleID)",
+            final: "Launched \(bundleID)"
+        ) {
+            try SimulatorService.launch(udid: task.simulatorUDID, bundleID: bundleID)
+        }
 
-        print("✅ Build, install, and launch succeeded.")
+        Terminal.out()
+        Terminal.out(.success, "  ✓ Build, install, and launch succeeded")
     }
 
     // MARK: - Helpers
@@ -85,7 +96,7 @@ struct Run: ParsableCommand {
             return simApp
         }
         guard let app = apps.first else {
-            print("❌ No .app bundle found in \(productsDir).")
+            Terminal.errorLine("no .app bundle found in \(productsDir)")
             throw ExitCode.failure
         }
         return app

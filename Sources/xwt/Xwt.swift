@@ -8,4 +8,10 @@ struct Xwt: ParsableCommand {
         version: xwtVersion,
         subcommands: [Init.self, Start.self, List.self, Run.self, Remove.self, PR.self, Restack.self]
     )
+
+    static func main() {
+        SignalHandler.install()
+        // Delegate to ArgumentParser's standard dispatch / error handling.
+        Self.main(nil)
+    }
 }
