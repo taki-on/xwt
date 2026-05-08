@@ -123,18 +123,24 @@ enum Style {
     case failure    // bold red
     case warning    // bold yellow
     case info       // cyan
-    case muted      // bright black (gray)
+    case muted      // faint (theme-adaptive dim of the default foreground)
     case highlight  // bold
     case heading    // bold
 
     /// SGR parameters for this style, or `nil` for an unstyled passthrough.
+    ///
+    /// `.muted` intentionally uses SGR 2 ("faint") rather than an absolute
+    /// gray (e.g. 90 / bright black). Faint dims the *default foreground*,
+    /// so it stays readable on both light themes (dim toward gray) and dark
+    /// themes (dim toward light gray) instead of becoming an invisible
+    /// dark-on-dark blob.
     fileprivate var sgr: String? {
         switch self {
         case .success:   return "1;32"
         case .failure:   return "1;31"
         case .warning:   return "1;33"
         case .info:      return "36"
-        case .muted:     return "90"
+        case .muted:     return "2"
         case .highlight: return "1"
         case .heading:   return "1"
         }
