@@ -34,20 +34,43 @@ cp .build/release/xwt /usr/local/bin/
 swift run xwt <command>
 ```
 
+### Shell integration (recommended)
+
+xwt can hand-jump to a worktree (`xwt cd <branch>`) and automatically
+`cd` into a new worktree after `xwt start`. Because no subprocess can
+change its parent shell's working directory on its own, this needs a
+tiny shell wrapper. Add the appropriate one-liner to your shell's rc
+file:
+
+| Shell | Where | Line |
+|---|---|---|
+| zsh  | `~/.zshrc`                       | `eval "$(xwt shell-init zsh)"` |
+| bash | `~/.bash_profile` (macOS) or `~/.bashrc` (Linux) | `eval "$(xwt shell-init bash)"` |
+| fish | `~/.config/fish/config.fish`     | `xwt shell-init fish \| source` |
+
+Then `source` the file (or open a new terminal) to activate it.
+
+`xwt init` will offer to add the right line to the right rc file the
+first time you run it. Subsequent runs detect that it's already
+installed and stay quiet.
+
+To opt out of the auto-cd after `xwt start`, set `XWT_NO_CD=1` in your
+environment (or one-off: `XWT_NO_CD=1 xwt start feature/login`).
+
 ## Quick Start
 
 ```bash
 # Set up xwt in your repo (interactive, one-time)
 xwt init
 
-# Start a new task for a feature branch
+# Start a new task for a feature branch — auto-cds you into the worktree
 xwt start feature/login-refactor
-
-# cd into the worktree
-cd ~/worktrees/<repo>/feature-login-refactor
 
 # Build and run on the branch's dedicated simulator
 xwt run feature/login-refactor --scheme MyApp
+
+# Jump back to a worktree from anywhere
+xwt cd feature/login-refactor
 
 # List all active tasks
 xwt list
@@ -56,19 +79,25 @@ xwt list
 xwt remove feature/login-refactor
 ```
 
+> The `xwt cd` and auto-cd-after-`start` ergonomics require the shell
+> integration — see [Shell integration](#shell-integration-recommended).
+
 ### Stacked PRs
 
 ```bash
-# Start the first branch
+# Start the first branch (auto-cds into the worktree)
 xwt start feature/auth
 
-# cd into it, then start a child branch — auto-detected!
-cd ~/worktrees/<repo>/feature-auth
+# From inside the worktree, start a child branch — auto-detected!
 xwt start feature/auth-ui
 # prints: 🔗 Stacking on 'feature/auth' (auto-detected from current worktree)
 
 # Or be explicit
 xwt start feature/auth-tests --base feature/auth
+
+# Hop between worktrees in the stack
+xwt cd feature/auth
+xwt cd feature/auth-ui
 
 # Create PRs with correct base branches
 xwt pr feature/auth          # PR: feature/auth → main
@@ -95,6 +124,12 @@ Interactively creates or updates the `.xwt.json` configuration file in your repo
 6. **Worktree directory** — base directory for worktrees (default `~/worktrees`)
 
 After saving the config, `xwt init` offers to add `.xwt.json` and the generated instruction files to `.gitignore` or `.git/info/exclude`.
+
+Finally, on the first run on a new machine, `xwt init` offers to install
+the [shell integration](#shell-integration-recommended) line into your
+shell's rc file so `xwt cd` and auto-cd-on-start just work. On
+subsequent `xwt init` runs, this step detects that the line is already
+installed and skips silently.
 
 If a `.xwt.json` already exists, its values are used as defaults so you can update individual settings without re-entering everything.
 
@@ -170,6 +205,45 @@ Rebases stacked branches onto their updated parents in topological order. Valida
 - If `<branch>` is given, restacks that branch and all its descendants.
 - If omitted, restacks all stacked branches in the repo.
 - On conflict, stops and tells you which worktree to resolve in.
+
+### `xwt cd <branch>`
+
+Jumps to a branch's worktree directory. Requires the [shell
+integration](#shell-integration-recommended) to be installed (a
+subprocess can't change its parent shell's `cwd`, so we ship a tiny
+shell function that does it for you).
+
+```bash
+xwt cd feature/login        # accepts branch name
+xwt cd feature-login        # or slug
+```
+
+When run inside a repo, `xwt cd` uses that repo's tasks. When run
+elsewhere it scans all known repos for a unique match — pass
+`--repo <name>` to disambiguate.
+
+### `xwt path <branch>`
+
+Prints the absolute worktree path on stdout (errors go to stderr), so
+it's safe inside command substitution:
+
+```bash
+cd "$(xwt path feature/login)"
+code "$(xwt path feature/login)"
+```
+
+This is the building block `xwt cd` is built on; you can use it
+directly when you don't want to install the shell integration.
+
+| Option | Description |
+|---|---|
+| `--repo <name>` | Constrain lookup to this repo (defaults to the cwd's repo, or scans all known repos). |
+
+### `xwt shell-init <shell>`
+
+Prints the shell wrapper function for the given shell (`zsh`, `bash`,
+or `fish`). See the [Shell integration](#shell-integration-recommended)
+section for installation instructions.
 
 ## Configuration
 
@@ -267,20 +341,20 @@ CLAUDE.local.md
 ## Typical Workflow
 
 ```bash
-# 1. Start a new task — creates worktree, simulator, and instruction files
+# 1. Start a new task — creates worktree, simulator, and instruction files,
+#    and (with shell integration) auto-cds you into the worktree.
 xwt start feature/login-refactor
 
-# 2. Move into the worktree
-cd ~/worktrees/<repo>/feature-login-refactor
-
-# 3. Launch your AI coding agent and develop the feature
+# 2. Launch your AI coding agent and develop the feature
 copilot          # GitHub Copilot CLI
 claude           # Claude Code
 # Both auto-detect the correct simulator and DerivedData via the generated instruction files.
 
-# 4. Need a stacked branch? Run xwt start from inside the worktree
+# 3. Need a stacked branch? Run xwt start — auto-stacks and auto-cds.
 xwt start feature/login-tests
-# → auto-stacks on feature/login-refactor
+
+# 4. Hop back to a parent in the stack
+xwt cd feature/login-refactor
 
 # 5. When done, clean up the environment
 xwt remove feature/login-refactor

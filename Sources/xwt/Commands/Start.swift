@@ -166,6 +166,10 @@ struct Start: ParsableCommand {
             // 8. Exclude generated files from git tracking in the worktree
             excludeFromGit(worktreePath: worktreePath)
 
+            // 9. Record the new worktree path for the shell-integration auto-cd
+            //    (`xwt shell-init`). Best-effort — failure is non-fatal.
+            writeLastTaskPath(worktreePath)
+
             Terminal.out()
             Terminal.out(.success, "  ✓ Task started: \(branch)")
             let sharedTag = shareResources ? Terminal.styled(" (shared)", .muted) : ""
@@ -295,6 +299,22 @@ struct Start: ParsableCommand {
             try content.write(to: excludeURL, atomically: true, encoding: .utf8)
         } catch {
             Terminal.warningLine("could not update .git/info/exclude: \(error.localizedDescription)")
+        }
+    }
+
+    /// Record the new worktree path so the shell-integration wrapper can
+    /// auto-cd into it after a successful `xwt start`. Best-effort — any
+    /// failure is downgraded to a non-fatal warning.
+    private func writeLastTaskPath(_ worktreePath: String) {
+        let url = Paths.lastTaskPathFile
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try (worktreePath + "\n").write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            Terminal.warningLine("could not record last-task path: \(error.localizedDescription)")
         }
     }
 }

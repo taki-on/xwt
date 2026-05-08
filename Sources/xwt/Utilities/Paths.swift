@@ -16,6 +16,12 @@ enum Paths {
         repoStateDir(repo: repo).appendingPathComponent("\(slug).json")
     }
 
+    /// `~/.xwt/last-task-path` — written by `xwt start` after success,
+    /// read by the shell-integration wrapper to auto-cd into the new worktree.
+    static var lastTaskPathFile: URL {
+        xwtRoot.appendingPathComponent("last-task-path")
+    }
+
     /// `<worktreeDir>/<repo>/<slug>/` — defaults to `~/worktrees` when no custom dir is set.
     static func worktreePath(repo: String, slug: String, worktreeDir: String? = nil) -> URL {
         let base: URL

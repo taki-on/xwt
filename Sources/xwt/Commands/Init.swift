@@ -61,6 +61,9 @@ struct Init: ParsableCommand {
         // 7. Git exclusions
         configureGitExclusions(repoRoot: repoRoot)
 
+        // 8. Shell integration (per-machine, one-time)
+        configureShellIntegration()
+
         printSummary(config)
     }
 
@@ -522,6 +525,145 @@ struct Init: ParsableCommand {
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
         } catch {
             Terminal.warningLine("could not update \(fileURL.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Step 9: Shell Integration
+
+    /// Per-machine, one-time setup of the `xwt shell-init` wrapper. Detects
+    /// the user's shell from `$SHELL`, picks the right rc file, and offers
+    /// to add the eval line if it isn't already present. Runs at the end of
+    /// `xwt init` so config is always saved even if this step is skipped.
+    private func configureShellIntegration() {
+        Terminal.out()
+        Terminal.out(.heading, "Shell integration")
+
+        guard let info = ShellIntegrationInfo.detect() else {
+            let shellPath = ProcessInfo.processInfo.environment["SHELL"] ?? "<unset>"
+            Terminal.noteLine("could not detect a supported shell from $SHELL='\(shellPath)' — skipping")
+            Terminal.err(.muted, "  See `xwt shell-init --help` to install manually.")
+            Terminal.out()
+            return
+        }
+
+        let displayPath = info.rcFilePath.replacingOccurrences(
+            of: NSHomeDirectory(),
+            with: "~"
+        )
+
+        if isLinePresent(info.installLine, in: info.rcFileURL) {
+            Terminal.out(.muted, "  · already installed in \(displayPath)")
+            Terminal.out()
+            return
+        }
+
+        Terminal.out(.muted, "  Adds `xwt cd <branch>` and auto-cd after `xwt start`.")
+
+        let selected = Prompt.choose(
+            prompt: "🐚 Install xwt shell integration for \(info.shellName)?",
+            options: ["Add to \(displayPath)"],
+            allowNone: true
+        )
+
+        guard selected != nil else {
+            Terminal.out(.muted, "  · skipped — install later with `xwt shell-init \(info.shellName)`")
+            Terminal.out()
+            return
+        }
+
+        do {
+            try appendInstallBlock(info)
+            Terminal.out(.success, "  ✓ Added shell integration to \(displayPath)")
+            Terminal.out(.muted, "    ↳ run `source \(displayPath)` or open a new terminal to activate")
+        } catch {
+            Terminal.warningLine("could not update \(displayPath): \(error.localizedDescription)")
+        }
+        Terminal.out()
+    }
+
+    /// Append a small block (header comment + install line) to the rc file,
+    /// creating the file (and any missing parent directories) as needed.
+    private func appendInstallBlock(_ info: ShellIntegrationInfo) throws {
+        try FileManager.default.createDirectory(
+            at: info.rcFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var content = ""
+        if FileManager.default.fileExists(atPath: info.rcFileURL.path) {
+            content = try String(contentsOf: info.rcFileURL, encoding: .utf8)
+        }
+        if !content.isEmpty && !content.hasSuffix("\n") {
+            content += "\n"
+        }
+        content += "\n# Added by `xwt init` — xwt shell integration (cd / auto-cd-on-start).\n"
+        content += info.installLine + "\n"
+
+        try content.write(to: info.rcFileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func isLinePresent(_ needle: String, in fileURL: URL) -> Bool {
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return false
+        }
+        // Substring match (across the file) — robust to minor whitespace
+        // tweaks the user may have made. We're looking for `xwt shell-init`
+        // anywhere in the file.
+        return content.contains("xwt shell-init")
+            || content.contains(needle)
+    }
+
+    // MARK: - Shell detection
+
+    /// Resolved metadata for installing the xwt shell wrapper for a
+    /// particular shell.
+    private struct ShellIntegrationInfo {
+        let shellName: String      // "zsh" | "bash" | "fish"
+        let rcFileURL: URL
+        let installLine: String
+
+        var rcFilePath: String { rcFileURL.path }
+
+        /// Detect the user's shell from `$SHELL` and resolve the rc file +
+        /// install line. Returns `nil` for unsupported shells (or when
+        /// `$SHELL` is unset or unparseable).
+        static func detect() -> ShellIntegrationInfo? {
+            let env = ProcessInfo.processInfo.environment
+            guard let shellPath = env["SHELL"], !shellPath.isEmpty else { return nil }
+            let shellName = (shellPath as NSString).lastPathComponent
+            let home = FileManager.default.homeDirectoryForCurrentUser
+
+            switch shellName {
+            case "zsh":
+                return ShellIntegrationInfo(
+                    shellName: "zsh",
+                    rcFileURL: home.appendingPathComponent(".zshrc"),
+                    installLine: #"eval "$(xwt shell-init zsh)""#
+                )
+            case "bash":
+                // On macOS interactive login shells read ~/.bash_profile,
+                // not ~/.bashrc. Prefer .bash_profile if it already exists;
+                // otherwise create/use .bashrc.
+                let bashProfile = home.appendingPathComponent(".bash_profile")
+                let bashrc = home.appendingPathComponent(".bashrc")
+                let target = FileManager.default.fileExists(atPath: bashProfile.path)
+                    ? bashProfile
+                    : bashrc
+                return ShellIntegrationInfo(
+                    shellName: "bash",
+                    rcFileURL: target,
+                    installLine: #"eval "$(xwt shell-init bash)""#
+                )
+            case "fish":
+                return ShellIntegrationInfo(
+                    shellName: "fish",
+                    rcFileURL: home
+                        .appendingPathComponent(".config/fish/config.fish"),
+                    installLine: "xwt shell-init fish | source"
+                )
+            default:
+                return nil
+            }
         }
     }
 
