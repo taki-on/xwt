@@ -55,8 +55,14 @@ final class Spinner {
         let frame = Spinner.frames[frameIndex % Spinner.frames.count]
         frameIndex += 1
         // \r → column 0, \e[2K → erase entire line, then redraw.
+        // Clamp the visible content to the terminal width so the redraw
+        // always fits on a single line — otherwise a long message wraps
+        // and `\e[2K` only erases the last wrapped row, leaving a stub of
+        // every previous frame behind (one new line per tick).
         let styled = Terminal.styled(frame, .info)
-        print("\r\u{1B}[2K\(styled) \(message)", terminator: "")
+        let budget = max(0, Terminal.terminalWidth() - 3) // "⠋ " + cursor margin
+        let clipped = Spinner.clamp(message, toVisibleWidth: budget)
+        print("\r\u{1B}[2K\(styled) \(clipped)", terminator: "")
         fflush(stdout)
     }
 
@@ -75,7 +81,14 @@ final class Spinner {
         case .silent:  icon = ""
         }
         let text = final ?? message
-        print("\r\u{1B}[2K\(icon)\(icon.isEmpty ? "" : " ")\(text)")
+        // Clamp like tick() — if the final text wraps and the spinner was
+        // previously wrapping too, the unerased first wrap-row from the
+        // last frame would survive next to the new final line.
+        let prefix = icon.isEmpty ? "" : "\(icon) "
+        let prefixWidth = icon.isEmpty ? 0 : 2
+        let budget = max(0, Terminal.terminalWidth() - prefixWidth - 1)
+        let clipped = Spinner.clamp(text, toVisibleWidth: budget)
+        print("\r\u{1B}[2K\(prefix)\(clipped)")
         // Restore cursor.
         print("\u{1B}[?25h", terminator: "")
         fflush(stdout)
@@ -97,6 +110,27 @@ final class Spinner {
         case success
         case failure
         case silent
+    }
+
+    /// Truncate `s` so its on-screen width fits within `budget` columns,
+    /// appending an ellipsis ("…") when truncation occurs. Uses the same
+    /// width approximation as `String.visibleWidth` (1 col per scalar, 2
+    /// for emoji-presentation scalars). The spinner only styles the frame
+    /// itself, so `s` is assumed to contain no ANSI escape sequences.
+    fileprivate static func clamp(_ s: String, toVisibleWidth budget: Int) -> String {
+        if budget <= 0 { return "" }
+        if s.visibleWidth <= budget { return s }
+        let cap = budget - 1 // reserve one column for the ellipsis
+        var width = 0
+        var result = ""
+        for scalar in s.unicodeScalars {
+            let w = (scalar.properties.isEmojiPresentation && scalar.value > 127) ? 2 : 1
+            if width + w > cap { break }
+            result.unicodeScalars.append(scalar)
+            width += w
+        }
+        result.append("…")
+        return result
     }
 
     /// Run `work` with a spinner showing `message`. Stops with `.success` (and
