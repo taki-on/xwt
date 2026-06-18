@@ -47,7 +47,7 @@ struct SyncAuth: ParsableCommand {
             toTargetUDID: task.simulatorUDID,
             bundleID: resolvedBundleID,
             includeKeychain: true,
-            terminateTargetApp: true
+            quiesceTarget: true
         )
 
         switch result {

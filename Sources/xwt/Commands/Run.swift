@@ -94,7 +94,7 @@ struct Run: ParsableCommand {
                 toTargetUDID: task.simulatorUDID,
                 bundleID: bundleID,
                 includeKeychain: true,
-                terminateTargetApp: false
+                quiesceTarget: false
             )
         }
 

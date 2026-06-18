@@ -126,7 +126,7 @@ struct Start: ParsableCommand {
                             toTargetUDID: udid,
                             bundleID: nil,
                             includeKeychain: true,
-                            terminateTargetApp: false
+                            quiesceTarget: false
                         )
                     }
                 }
