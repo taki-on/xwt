@@ -19,22 +19,24 @@ enum AuthSyncService {
     /// can continue setting up a task.
     ///
     /// - Parameters:
-    ///   - bundleID: when non-nil, also copy the app's `HTTPStorages` session.
+    ///   - bundleID: when non-nil, also copy the app's persisted session
+    ///     (cookies, URL-session storage, web data and `UserDefaults` suites).
     ///     Requires the app to be installed on both simulators.
     ///   - includeKeychain: copy the simulator-level keychain.
-    ///   - terminateTargetApp: terminate the app on the target before copying
-    ///     its session (used by an explicit `xwt sync-auth` force re-sync).
+    ///   - quiesceTarget: shut the target simulator down for the copy (used by
+    ///     the explicit `xwt sync-auth` force re-sync, where the app may be
+    ///     running) so `cfprefsd`/`cookied` can't overwrite the copied files.
     @discardableResult
     static func sync(
         fromSource sourceID: String,
         toTargetUDID targetUDID: String,
         bundleID: String?,
         includeKeychain: Bool,
-        terminateTargetApp: Bool
+        quiesceTarget: Bool
     ) -> AuthSyncResult {
         let source: SimulatorInfo
         do {
-            source = try SimulatorService.resolve(sourceID)
+            source = try SimulatorService.resolveAuthSource(sourceID, bundleID: bundleID)
         } catch {
             warnFailure(error)
             return .failed
@@ -56,31 +58,43 @@ enum AuthSyncService {
         }
         Terminal.out(.info, "  › Copying \(what) from '\(source.name)' \(Terminal.styled("(\(source.udid))", .muted))")
 
-        // Flush the source so SQLite WAL journals are checkpointed before copy.
-        let wasBooted = source.isBooted
-        if wasBooted {
+        // Quiesce the simulators so SQLite WAL journals are checkpointed and no
+        // running daemon (`cfprefsd`/`cookied`) rewrites the files mid-copy.
+        // Always for the source; for the target only on an explicit force
+        // re-sync, where the app (and its preferences) may be live.
+        let sourceWasBooted = source.isBooted
+        if sourceWasBooted {
             Terminal.out(.muted, "    ↳ shutting down source simulator to flush data")
             try? SimulatorService.shutdown(udid: source.udid)
+        }
+        let targetWasBooted = quiesceTarget
+            && (((try? SimulatorService.findByUDID(targetUDID)) ?? nil)?.isBooted ?? false)
+        if targetWasBooted {
+            Terminal.out(.muted, "    ↳ shutting down target simulator to apply session")
+            try? SimulatorService.shutdown(udid: targetUDID)
+        }
+        if sourceWasBooted || targetWasBooted {
             Thread.sleep(forTimeInterval: 1)
         }
         defer {
-            if wasBooted {
+            if sourceWasBooted {
                 Terminal.out(.muted, "    ↳ rebooting source simulator")
                 try? SimulatorService.boot(udid: source.udid)
+            }
+            if targetWasBooted {
+                Terminal.out(.muted, "    ↳ rebooting target simulator")
+                try? SimulatorService.boot(udid: targetUDID)
             }
         }
 
         do {
-            if terminateTargetApp, let bundleID {
-                SimulatorService.terminate(udid: targetUDID, bundleID: bundleID)
-            }
             if includeKeychain {
                 try SimulatorService.copyKeychain(from: source.udid, to: targetUDID)
                 Terminal.out(.muted, "    ↳ keychain copied")
             }
             if let bundleID {
-                try SimulatorService.copyHTTPStorages(from: source.udid, to: targetUDID, bundleID: bundleID)
-                Terminal.out(.muted, "    ↳ session (cookies) copied")
+                try SimulatorService.copyAppSession(from: source.udid, to: targetUDID, bundleID: bundleID)
+                Terminal.out(.muted, "    ↳ session (cookies + defaults) copied")
             }
             return .copied
         } catch {

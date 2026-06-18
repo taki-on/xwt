@@ -25,7 +25,7 @@ enum SimulatorServiceError: Error, CustomStringConvertible {
         case .containerNotFound(let udid, let bundleID):
             return "No data container for '\(bundleID)' on simulator \(udid) — is the app installed?"
         case .sessionNotFound(let udid, let bundleID):
-            return "No session storage (HTTPStorages) for '\(bundleID)' on simulator \(udid)"
+            return "No copyable session (cookies / defaults / HTTPStorages) for '\(bundleID)' on simulator \(udid)"
         }
     }
 }
@@ -164,6 +164,36 @@ enum SimulatorService {
         throw SimulatorServiceError.notFound(nameOrUDID)
     }
 
+    /// Resolve the best *auth source* for a bundle. A simulator name can match
+    /// several devices (e.g. multiple "iPhone 17 Pro"); when it does, prefer one
+    /// that actually has the app's session so auth is never copied from a
+    /// logged-out device. Resolution is otherwise deterministic (booted first,
+    /// then lowest UDID) so it never depends on dictionary iteration order.
+    static func resolveAuthSource(_ nameOrUDID: String, bundleID: String?) throws -> SimulatorInfo {
+        let devices = try fetchAllDevices()
+        if let info = devices[nameOrUDID] { return info }  // exact UDID match
+
+        let matches = devices.values.filter { $0.name == nameOrUDID }.sorted(by: Self.preferredSourceOrder)
+        guard let first = matches.first else { throw SimulatorServiceError.notFound(nameOrUDID) }
+        guard matches.count > 1, let bundleID else { return first }
+
+        // Disambiguate same-named devices: prefer a logged-in session, then any
+        // install, else the deterministic default.
+        if let withSession = matches.first(where: { hasSession(udid: $0.udid, bundleID: bundleID) }) {
+            return withSession
+        }
+        if let withContainer = matches.first(where: { appDataContainer(udid: $0.udid, bundleID: bundleID) != nil }) {
+            return withContainer
+        }
+        return first
+    }
+
+    /// Stable ordering for ambiguous name matches: booted devices first, then by UDID.
+    private static func preferredSourceOrder(_ a: SimulatorInfo, _ b: SimulatorInfo) -> Bool {
+        if a.isBooted != b.isBooted { return a.isBooted }
+        return a.udid < b.udid
+    }
+
     /// Copy keychain database from one simulator to another.
     /// Both simulators should be shut down to avoid SQLite WAL conflicts.
     static func copyKeychain(from sourceUDID: String, to targetUDID: String) throws {
@@ -223,25 +253,45 @@ enum SimulatorService {
         return nil
     }
 
-    /// Whether the target app already has persisted URL-session storage. Used to
-    /// avoid clobbering an established session on a subsequent `xwt run`.
+    /// `Library` subdirectories that hold an app's login/session state: web and
+    /// URL-session cookies (`Cookies`, `HTTPStorages`, `WebKit`) plus the
+    /// `UserDefaults` suites apps persist sign-in state in (`Preferences`).
+    /// Note these suites aren't always `<bundleID>`-prefixed (e.g. GitHub uses
+    /// `com.github.com.session.defaults.<login>@github.com`), so the whole
+    /// `Preferences` directory is copied rather than a single plist.
+    private static let sessionLibrarySubdirectories = ["Cookies", "Preferences", "HTTPStorages", "WebKit"]
+
+    /// Whether the target app already has a persisted login/session, so callers
+    /// can avoid clobbering it on a routine `xwt run`. Looks for copied cookies
+    /// or URL-session storage rather than only `httpstorages.sqlite`.
     static func hasSession(udid: String, bundleID: String) -> Bool {
         guard let container = appDataContainer(udid: udid, bundleID: bundleID) else {
             return false
         }
+        let fm = FileManager.default
+
+        // Any cookie jar (e.g. `<bundleID>.binarycookies`) implies a session.
+        let cookiesDir = container.appendingPathComponent("Library").appendingPathComponent("Cookies")
+        if let cookies = try? fm.contentsOfDirectory(atPath: cookiesDir.path),
+           cookies.contains(where: { $0.hasSuffix(".binarycookies") }) {
+            return true
+        }
+
+        // Fall back to non-empty URL-session storage.
         let sqlite = container
             .appendingPathComponent(Paths.httpStoragesSubpath(bundleID: bundleID))
             .appendingPathComponent("httpstorages.sqlite")
-        let fm = FileManager.default
         guard let attrs = try? fm.attributesOfItem(atPath: sqlite.path),
               let size = attrs[.size] as? Int else { return false }
         return size > 0
     }
 
-    /// Copy an app's `HTTPStorages/<bundleID>` (cookies / URL-session storage)
-    /// from one simulator to another. Both simulators should be shut down to
-    /// avoid SQLite WAL conflicts. The target app must already be installed.
-    static func copyHTTPStorages(from sourceUDID: String, to targetUDID: String, bundleID: String) throws {
+    /// Copy an app's persisted session — cookies, URL-session storage, web data
+    /// and `UserDefaults` suites — from one simulator to another so the target
+    /// app starts already logged in. Both simulators should be shut down to
+    /// avoid SQLite WAL conflicts and to keep `cfprefsd`/`cookied` from
+    /// rewriting the freshly-copied files. The app must be installed on both.
+    static func copyAppSession(from sourceUDID: String, to targetUDID: String, bundleID: String) throws {
         let fm = FileManager.default
         guard let sourceContainer = appDataContainer(udid: sourceUDID, bundleID: bundleID) else {
             throw SimulatorServiceError.containerNotFound(udid: sourceUDID, bundleID: bundleID)
@@ -250,28 +300,23 @@ enum SimulatorService {
             throw SimulatorServiceError.containerNotFound(udid: targetUDID, bundleID: bundleID)
         }
 
-        let subpath = Paths.httpStoragesSubpath(bundleID: bundleID)
-        let sourceDir = sourceContainer.appendingPathComponent(subpath)
-        let targetDir = targetContainer.appendingPathComponent(subpath)
-
-        let mainDB = "httpstorages.sqlite"
-        guard fm.fileExists(atPath: sourceDir.appendingPathComponent(mainDB).path) else {
-            throw SimulatorServiceError.sessionNotFound(udid: sourceUDID, bundleID: bundleID)
-        }
-
-        try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-
-        // Always clear the target's existing files first so a stale journal
-        // can't corrupt the freshly copied database.
-        for file in [mainDB, "\(mainDB)-shm", "\(mainDB)-wal"] {
-            let src = sourceDir.appendingPathComponent(file)
-            let dst = targetDir.appendingPathComponent(file)
+        var copiedAny = false
+        for subdirectory in sessionLibrarySubdirectories {
+            let src = sourceContainer.appendingPathComponent("Library").appendingPathComponent(subdirectory)
+            let dst = targetContainer.appendingPathComponent("Library").appendingPathComponent(subdirectory)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            // Replace the target's copy so a stale journal can't corrupt the
+            // freshly copied databases.
             if fm.fileExists(atPath: dst.path) {
                 try fm.removeItem(at: dst)
             }
-            if fm.fileExists(atPath: src.path) {
-                try fm.copyItem(at: src, to: dst)
-            }
+            try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: src, to: dst)
+            copiedAny = true
+        }
+
+        guard copiedAny else {
+            throw SimulatorServiceError.sessionNotFound(udid: sourceUDID, bundleID: bundleID)
         }
     }
 
