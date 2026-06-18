@@ -114,13 +114,20 @@ struct Start: ParsableCommand {
                     Terminal.warningLine(mismatch)
                 }
 
-                // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator)
+                // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator).
+                //    Session cookies are copied later by `xwt run` once the app is installed.
                 if !noCopyAuth {
                     let sourceID = copyAuthFrom
                         ?? resolvedBase?.parentTask?.simulatorUDID
                         ?? config.sourceSimulator
                     if let sourceID = sourceID {
-                        copyKeychain(from: sourceID, to: udid)
+                        AuthSyncService.sync(
+                            fromSource: sourceID,
+                            toTargetUDID: udid,
+                            bundleID: nil,
+                            includeKeychain: true,
+                            terminateTargetApp: false
+                        )
                     }
                 }
 
@@ -232,35 +239,6 @@ struct Start: ParsableCommand {
         }
 
         return nil
-    }
-
-    /// Copy keychain from a source simulator to the target. Non-fatal on failure.
-    private func copyKeychain(from sourceID: String, to targetUDID: String) {
-        do {
-            let source = try SimulatorService.resolve(sourceID)
-            Terminal.out(.info, "  › Copying keychain from '\(source.name)' \(Terminal.styled("(\(source.udid))", .muted))")
-
-            // If source is booted, shut it down to flush WAL, then reboot after copy
-            let wasBooted = source.isBooted
-            if wasBooted {
-                Terminal.out(.muted, "    ↳ shutting down source simulator to flush keychain")
-                try SimulatorService.shutdown(udid: source.udid)
-                // Brief pause for WAL checkpoint
-                Thread.sleep(forTimeInterval: 1)
-            }
-
-            try SimulatorService.copyKeychain(from: source.udid, to: targetUDID)
-
-            if wasBooted {
-                Terminal.out(.muted, "    ↳ rebooting source simulator")
-                try SimulatorService.boot(udid: source.udid)
-            }
-
-            Terminal.out(.muted, "    ↳ keychain copied successfully")
-        } catch {
-            Terminal.warningLine("could not copy keychain: \(error)")
-            Terminal.err(.muted, "    ↳ you may need to log in manually on the new simulator")
-        }
     }
 
     /// Add xwt-generated files to the repo's `.git/info/exclude` so they are never tracked.

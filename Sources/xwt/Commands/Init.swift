@@ -355,7 +355,7 @@ struct Init: ParsableCommand {
         }
 
         let selected = Prompt.choose(
-            prompt: "🔑 Copy keychain from simulator (for auto-login):",
+            prompt: "🔑 Copy auth (keychain + session) from simulator (for auto-login):",
             options: names,
             defaultIndex: defaultIndex,
             allowNone: true

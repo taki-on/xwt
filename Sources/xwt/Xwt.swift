@@ -11,6 +11,7 @@ struct Xwt: ParsableCommand {
             Start.self,
             List.self,
             Run.self,
+            SyncAuth.self,
             Remove.self,
             PR.self,
             Restack.self,

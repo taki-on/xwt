@@ -15,6 +15,12 @@ struct Run: ParsableCommand {
     @Flag(name: .long, help: "Build only, don't install and launch.")
     var buildOnly = false
 
+    @Option(name: .long, help: "Copy auth (keychain + session) from this simulator (name or UDID) on first install.")
+    var copyAuthFrom: String?
+
+    @Flag(name: .long, help: "Skip copying auth from a source simulator on first install.")
+    var noCopyAuth = false
+
     func run() throws {
         let repoRoot = try ConfigLoader.detectMainRepoRoot()
         let repo = ConfigLoader.repoName(from: repoRoot)
@@ -61,8 +67,15 @@ struct Run: ParsableCommand {
         }
 
         // Find, install, and launch the built app
-        let appPath = try Run.findBuiltApp(derivedDataPath: task.derivedDataPath)
-        let bundleID = try Run.readBundleID(appPath: appPath)
+        let appPath: String
+        let bundleID: String
+        do {
+            appPath = try BuiltApp.findApp(derivedDataPath: task.derivedDataPath)
+            bundleID = try BuiltApp.readBundleID(appPath: appPath)
+        } catch {
+            Terminal.errorLine("\(error)")
+            throw ExitCode.failure
+        }
 
         Terminal.out()
         try Spinner.around(
@@ -70,6 +83,19 @@ struct Run: ParsableCommand {
             final: "Installed \(bundleID) on \(task.simulatorName)"
         ) {
             try SimulatorService.install(udid: task.simulatorUDID, appPath: appPath)
+        }
+
+        // Copy auth (keychain + session cookies) on first install only — never
+        // clobber an existing session. Use `xwt sync-auth` to force a re-sync.
+        if !noCopyAuth, !SimulatorService.hasSession(udid: task.simulatorUDID, bundleID: bundleID),
+           let sourceID = resolveAuthSource(repo: repo, repoRoot: repoRoot, task: task) {
+            AuthSyncService.sync(
+                fromSource: sourceID,
+                toTargetUDID: task.simulatorUDID,
+                bundleID: bundleID,
+                includeKeychain: true,
+                terminateTargetApp: false
+            )
         }
 
         try Spinner.around(
@@ -85,28 +111,17 @@ struct Run: ParsableCommand {
 
     // MARK: - Helpers
 
-    /// Find the .app bundle built for the simulator in DerivedData.
-    private static func findBuiltApp(derivedDataPath: String) throws -> String {
-        let productsDir = "\(derivedDataPath)/Build/Products"
-        let output = try ShellRunner.run("find", productsDir, "-name", "*.app", "-type", "d", "-maxdepth", "3")
-        let apps = output.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-        // Prefer simulator builds
-        if let simApp = apps.first(where: { $0.contains("-iphonesimulator") }) {
-            return simApp
+    /// Resolve the source simulator to copy auth from, by priority:
+    /// `--copy-auth-from` > parent task's simulator > `sourceSimulator` in `.xwt.json`.
+    private func resolveAuthSource(repo: String, repoRoot: String, task: TaskState) -> String? {
+        if let copyAuthFrom { return copyAuthFrom }
+        if let parentSlug = task.parentSlug,
+           let parent = try? StateManager.load(repo: repo, slug: parentSlug) {
+            return parent.simulatorUDID
         }
-        guard let app = apps.first else {
-            Terminal.errorLine("no .app bundle found in \(productsDir)")
-            throw ExitCode.failure
+        if let config = try? RepoConfig.load(from: repoRoot) {
+            return config.sourceSimulator
         }
-        return app
-    }
-
-    /// Read CFBundleIdentifier from an app's Info.plist.
-    private static func readBundleID(appPath: String) throws -> String {
-        try ShellRunner.run(
-            "/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier",
-            "\(appPath)/Info.plist"
-        )
+        return nil
     }
 }

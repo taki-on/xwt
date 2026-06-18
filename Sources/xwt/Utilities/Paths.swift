@@ -33,12 +33,28 @@ enum Paths {
         return base.appendingPathComponent(repo).appendingPathComponent(slug)
     }
 
-    /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/Keychains/`
-    static func simulatorKeychainDir(udid: String) -> URL {
+    /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/`
+    static func simulatorDataDir(udid: String) -> URL {
         home
             .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
             .appendingPathComponent(udid)
-            .appendingPathComponent("data/Library/Keychains")
+            .appendingPathComponent("data")
+    }
+
+    /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/Keychains/`
+    static func simulatorKeychainDir(udid: String) -> URL {
+        simulatorDataDir(udid: udid).appendingPathComponent("Library/Keychains")
+    }
+
+    /// `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Containers/Data/Application/`
+    static func simulatorContainersDataAppDir(udid: String) -> URL {
+        simulatorDataDir(udid: udid).appendingPathComponent("Containers/Data/Application")
+    }
+
+    /// Per-app URL-session / cookie storage, relative to an app data container:
+    /// `Library/HTTPStorages/<bundleID>`
+    static func httpStoragesSubpath(bundleID: String) -> String {
+        "Library/HTTPStorages/\(bundleID)"
     }
 
     /// `~/Library/Developer/Xcode/DerivedData/xwt/<repo>/<slug>/`

@@ -13,6 +13,8 @@ struct SimulatorInfo {
 enum SimulatorServiceError: Error, CustomStringConvertible {
     case notFound(String)
     case keychainNotFound(String)
+    case containerNotFound(udid: String, bundleID: String)
+    case sessionNotFound(udid: String, bundleID: String)
 
     var description: String {
         switch self {
@@ -20,6 +22,10 @@ enum SimulatorServiceError: Error, CustomStringConvertible {
             return "Simulator not found: '\(id)'"
         case .keychainNotFound(let udid):
             return "No keychain database found for simulator \(udid)"
+        case .containerNotFound(let udid, let bundleID):
+            return "No data container for '\(bundleID)' on simulator \(udid) — is the app installed?"
+        case .sessionNotFound(let udid, let bundleID):
+            return "No session storage (HTTPStorages) for '\(bundleID)' on simulator \(udid)"
         }
     }
 }
@@ -141,6 +147,11 @@ enum SimulatorService {
         try ShellRunner.run("xcrun", "simctl", "launch", udid, bundleID)
     }
 
+    /// Terminate a running app on a simulator. Ignores "not running" errors.
+    static func terminate(udid: String, bundleID: String) {
+        _ = try? ShellRunner.run("xcrun", "simctl", "terminate", udid, bundleID)
+    }
+
     // MARK: - Helpers
 
     /// Resolve a simulator name or UDID to a `SimulatorInfo`.
@@ -170,15 +181,97 @@ enum SimulatorService {
         // Ensure target directory exists
         try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
-        // Copy main DB and WAL/SHM journals if present
+        // Copy main DB and WAL/SHM journals. Always clear the target's existing
+        // files first so a stale journal can't corrupt the freshly copied DB.
         for file in [mainDB, "\(mainDB)-shm", "\(mainDB)-wal"] {
             let src = sourceDir.appendingPathComponent(file)
             let dst = targetDir.appendingPathComponent(file)
-            guard fm.fileExists(atPath: src.path) else { continue }
             if fm.fileExists(atPath: dst.path) {
                 try fm.removeItem(at: dst)
             }
-            try fm.copyItem(at: src, to: dst)
+            if fm.fileExists(atPath: src.path) {
+                try fm.copyItem(at: src, to: dst)
+            }
+        }
+    }
+
+    // MARK: - App session (cookies / URL session storage)
+
+    /// Resolve an app's data container directory on a simulator by scanning each
+    /// container's `.com.apple.mobile_container_manager.metadata.plist` for a
+    /// matching `MCMMetadataIdentifier`. Works while the simulator is shut down
+    /// (unlike `simctl get_app_container`, which requires a booted device).
+    static func appDataContainer(udid: String, bundleID: String) -> URL? {
+        let appsDir = Paths.simulatorContainersDataAppDir(udid: udid)
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: appsDir, includingPropertiesForKeys: nil
+        ) else { return nil }
+
+        for container in entries {
+            let metadata = container.appendingPathComponent(
+                ".com.apple.mobile_container_manager.metadata.plist"
+            )
+            guard let data = try? Data(contentsOf: metadata),
+                  let plist = try? PropertyListSerialization.propertyList(
+                    from: data, options: [], format: nil
+                  ) as? [String: Any],
+                  let identifier = plist["MCMMetadataIdentifier"] as? String
+            else { continue }
+            if identifier == bundleID { return container }
+        }
+        return nil
+    }
+
+    /// Whether the target app already has persisted URL-session storage. Used to
+    /// avoid clobbering an established session on a subsequent `xwt run`.
+    static func hasSession(udid: String, bundleID: String) -> Bool {
+        guard let container = appDataContainer(udid: udid, bundleID: bundleID) else {
+            return false
+        }
+        let sqlite = container
+            .appendingPathComponent(Paths.httpStoragesSubpath(bundleID: bundleID))
+            .appendingPathComponent("httpstorages.sqlite")
+        let fm = FileManager.default
+        guard let attrs = try? fm.attributesOfItem(atPath: sqlite.path),
+              let size = attrs[.size] as? Int else { return false }
+        return size > 0
+    }
+
+    /// Copy an app's `HTTPStorages/<bundleID>` (cookies / URL-session storage)
+    /// from one simulator to another. Both simulators should be shut down to
+    /// avoid SQLite WAL conflicts. The target app must already be installed.
+    static func copyHTTPStorages(from sourceUDID: String, to targetUDID: String, bundleID: String) throws {
+        let fm = FileManager.default
+        guard let sourceContainer = appDataContainer(udid: sourceUDID, bundleID: bundleID) else {
+            throw SimulatorServiceError.containerNotFound(udid: sourceUDID, bundleID: bundleID)
+        }
+        guard let targetContainer = appDataContainer(udid: targetUDID, bundleID: bundleID) else {
+            throw SimulatorServiceError.containerNotFound(udid: targetUDID, bundleID: bundleID)
+        }
+
+        let subpath = Paths.httpStoragesSubpath(bundleID: bundleID)
+        let sourceDir = sourceContainer.appendingPathComponent(subpath)
+        let targetDir = targetContainer.appendingPathComponent(subpath)
+
+        let mainDB = "httpstorages.sqlite"
+        guard fm.fileExists(atPath: sourceDir.appendingPathComponent(mainDB).path) else {
+            throw SimulatorServiceError.sessionNotFound(udid: sourceUDID, bundleID: bundleID)
+        }
+
+        try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+
+        // Always clear the target's existing files first so a stale journal
+        // can't corrupt the freshly copied database.
+        for file in [mainDB, "\(mainDB)-shm", "\(mainDB)-wal"] {
+            let src = sourceDir.appendingPathComponent(file)
+            let dst = targetDir.appendingPathComponent(file)
+            if fm.fileExists(atPath: dst.path) {
+                try fm.removeItem(at: dst)
+            }
+            if fm.fileExists(atPath: src.path) {
+                try fm.copyItem(at: src, to: dst)
+            }
         }
     }
 

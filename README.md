@@ -120,7 +120,7 @@ Interactively creates or updates the `.xwt.json` configuration file in your repo
 2. **Scheme** — runs `xcodebuild -list` to discover available schemes
 3. **Device type** — lists available iPhone simulator types via `simctl`
 4. **iOS runtime** — lists installed iOS runtimes
-5. **Source simulator** — picks a simulator to copy the keychain from (for auto-login)
+5. **Source simulator** — picks a simulator to copy auth (keychain + session) from (for auto-login)
 6. **Worktree directory** — base directory for worktrees (default `~/worktrees`)
 
 After saving the config, `xwt init` offers to add `.xwt.json` and the generated instruction files to `.gitignore` or `.git/info/exclude`.
@@ -148,15 +148,15 @@ Creates a full isolated environment for a branch:
 |---|---|---|
 | `--device <type>` | Simulator device type | `iPhone 17 Pro` |
 | `--runtime <version>` | iOS runtime version | `iOS 26.4` |
-| `--copy-auth-from <sim>` | Copy keychain from this simulator (name or UDID) to skip re-login | — |
-| `--no-copy-auth` | Skip keychain copy even when `sourceSimulator` is configured | `false` |
+| `--copy-auth-from <sim>` | Copy auth from this simulator (name or UDID) to skip re-login | — |
+| `--no-copy-auth` | Skip auth copy even when `sourceSimulator` is configured | `false` |
 | `--no-boot` | Skip booting the simulator | `false` |
 | `--base <branch>` | Base branch to stack on (creates new branch from this base) | auto-detect |
 | `--no-base` | Don't auto-detect base branch from current worktree | `false` |
 
 **Stacking auto-detection**: when you run `xwt start` from inside an xwt-managed worktree, the new branch automatically stacks on the current worktree's branch. Use `--no-base` to opt out.
 
-When stacking, the keychain is automatically copied from the parent task's simulator (unless `--copy-auth-from` or `--no-copy-auth` is specified).
+When stacking, the keychain is automatically copied from the parent task's simulator (unless `--copy-auth-from` or `--no-copy-auth` is specified). At `start` time only the keychain is copied — the app's session cookies are copied later by `xwt run` once the app is installed (see [Auth / Session Copy](#auth--session-copy)).
 
 ### `xwt list`
 
@@ -174,6 +174,31 @@ Builds the project for the branch's assigned simulator using `xcodebuild`.
 |---|---|
 | `--scheme <name>` | Override the build scheme |
 | `--build-only` | Build without launching |
+| `--copy-auth-from <sim>` | Copy auth (keychain + session) from this simulator on first install |
+| `--no-copy-auth` | Skip copying auth on first install |
+
+On the **first install** of the app (when the target simulator has no session
+yet), `xwt run` copies the keychain **and** the app's session cookies from the
+source simulator so the app launches already logged in. It never overwrites an
+existing session on subsequent runs — use `xwt sync-auth` to force a re-sync.
+The source is resolved as `--copy-auth-from` > the parent task's simulator >
+`sourceSimulator` in `.xwt.json`.
+
+### `xwt sync-auth <branch>`
+
+Force-copies auth state (keychain + session cookies) from a source simulator
+into the task's simulator, overwriting any existing session. Useful when the
+source simulator's login changed, or after `xwt start --no-copy-auth`. Relaunch
+the app afterwards to pick up the copied session.
+
+| Option | Description |
+|---|---|
+| `--copy-auth-from <sim>` | Source simulator (name or UDID); overrides parent task / `.xwt.json` |
+| `--bundle-id <id>` | App bundle identifier; defaults to the built app's `CFBundleIdentifier` |
+
+The app must be installed on the target simulator (run `xwt run` first) so its
+data container exists. The bundle ID is read from the app built into the task's
+DerivedData unless `--bundle-id` is given.
 
 ### `xwt remove <branch>`
 
@@ -262,11 +287,18 @@ Supported fields: `workspace`, `project`, `package`, `scheme`, `deviceType`, `ru
 
 `workspace`, `project`, and `package` are mutually exclusive. Use `package` for Swift Package repositories (typically `"Package.swift"`); `xwt run` invokes `xcodebuild` from the worktree root with no `-workspace` / `-project` flag, letting `xcodebuild` discover the package automatically.
 
-### Auth / Keychain Copy
+### Auth / Session Copy
 
-When you log in to your app on a simulator, the auth tokens are stored in the simulator's keychain. New simulators created by `xwt start` don't have these tokens, requiring a fresh login each time.
+When you log in to your app on a simulator, the auth state is split across two
+places: the simulator **keychain** (`data/Library/Keychains/keychain-2-debug.db`)
+and the app's **session cookies / URL-session storage**
+(`…/Containers/Data/Application/<uuid>/Library/HTTPStorages/<bundleID>/httpstorages.sqlite`).
+Modern apps keep their logged-in session in the latter, so copying the keychain
+alone is not enough to stay logged in. New simulators created by `xwt start`
+have neither, requiring a fresh login each time.
 
-To skip re-authentication, set `sourceSimulator` in your `.xwt.json` to the name (or UDID) of a simulator that is already logged in:
+To skip re-authentication, set `sourceSimulator` in your `.xwt.json` to the name
+(or UDID) of a simulator that is already logged in:
 
 ```json
 {
@@ -276,7 +308,23 @@ To skip re-authentication, set `sourceSimulator` in your `.xwt.json` to the name
 }
 ```
 
-Now every `xwt start` will automatically copy the keychain from that simulator to the new one. Use `--no-copy-auth` to skip the copy, or `--copy-auth-from <name-or-udid>` to override the source on a per-invocation basis.
+How the copy happens:
+
+- **`xwt start`** copies the **keychain** from the source to the new simulator.
+  The keychain is simulator-level, so it can be copied immediately. Use
+  `--no-copy-auth` to skip, or `--copy-auth-from <name-or-udid>` to override the
+  source.
+- **`xwt run`** copies the **keychain + session cookies** on the *first install*
+  of the app — the session lives inside the app's data container, which only
+  exists once the app is installed. It never overwrites a session you've already
+  established on the target.
+- **`xwt sync-auth <branch>`** force-copies keychain + session on demand,
+  overwriting the target's existing session. Relaunch the app afterwards.
+
+The source for `run` / `sync-auth` is resolved as `--copy-auth-from` > the
+parent task's simulator (when stacking) > `sourceSimulator`. Both simulators are
+briefly shut down during the copy to flush SQLite WAL journals; the source is
+rebooted afterwards if it was running.
 
 ## File Layout
 
