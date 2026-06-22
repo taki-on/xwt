@@ -26,7 +26,7 @@ struct SyncAuth: ParsableCommand {
         }
 
         // Resolve source: --copy-auth-from > parent task's sim > config.sourceSimulator
-        guard let sourceID = resolveSource(repo: repo, repoRoot: repoRoot, task: task) else {
+        guard let source = resolveSource(repo: repo, repoRoot: repoRoot, task: task) else {
             Terminal.errorLine("no source simulator — pass --copy-auth-from or set 'sourceSimulator' in .xwt.json")
             throw ExitCode.failure
         }
@@ -43,7 +43,8 @@ struct SyncAuth: ParsableCommand {
         }
 
         let result = AuthSyncService.sync(
-            fromSource: sourceID,
+            fromSource: source.id,
+            sourceRuntime: source.runtime,
             toTargetUDID: task.simulatorUDID,
             bundleID: resolvedBundleID,
             includeKeychain: true,
@@ -69,14 +70,16 @@ struct SyncAuth: ParsableCommand {
 
     /// Resolve the source simulator by priority:
     /// `--copy-auth-from` > parent task's simulator > `sourceSimulator` in `.xwt.json`.
-    private func resolveSource(repo: String, repoRoot: String, task: TaskState) -> String? {
-        if let copyAuthFrom { return copyAuthFrom }
+    /// The optional runtime is the `.xwt.json` `sourceRuntime` and is carried only
+    /// on the config path, so it pins same-named sims by runtime.
+    private func resolveSource(repo: String, repoRoot: String, task: TaskState) -> (id: String, runtime: String?)? {
+        if let copyAuthFrom { return (copyAuthFrom, nil) }
         if let parentSlug = task.parentSlug,
            let parent = try? StateManager.load(repo: repo, slug: parentSlug) {
-            return parent.simulatorUDID
+            return (parent.simulatorUDID, nil)
         }
-        if let config = try? RepoConfig.load(from: repoRoot) {
-            return config.sourceSimulator
+        if let config = try? RepoConfig.load(from: repoRoot), let source = config.sourceSimulator {
+            return (source, config.sourceRuntime)
         }
         return nil
     }

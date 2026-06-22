@@ -12,6 +12,7 @@ struct SimulatorInfo {
 
 enum SimulatorServiceError: Error, CustomStringConvertible {
     case notFound(String)
+    case notFoundForRuntime(name: String, runtime: String)
     case keychainNotFound(String)
     case containerNotFound(udid: String, bundleID: String)
     case sessionNotFound(udid: String, bundleID: String)
@@ -20,6 +21,8 @@ enum SimulatorServiceError: Error, CustomStringConvertible {
         switch self {
         case .notFound(let id):
             return "Simulator not found: '\(id)'"
+        case .notFoundForRuntime(let name, let runtime):
+            return "Simulator not found: '\(name)' with runtime '\(runtime)'"
         case .keychainNotFound(let udid):
             return "No keychain database found for simulator \(udid)"
         case .containerNotFound(let udid, let bundleID):
@@ -169,11 +172,23 @@ enum SimulatorService {
     /// that actually has the app's session so auth is never copied from a
     /// logged-out device. Resolution is otherwise deterministic (booted first,
     /// then lowest UDID) so it never depends on dictionary iteration order.
-    static func resolveAuthSource(_ nameOrUDID: String, bundleID: String?) throws -> SimulatorInfo {
+    ///
+    /// When `runtime` is non-nil (a friendly form like "iOS 26.4"), name matches
+    /// are first narrowed to that runtime; if none match, this throws
+    /// `notFoundForRuntime` rather than falling back to another runtime.
+    static func resolveAuthSource(_ nameOrUDID: String, runtime: String?, bundleID: String?) throws -> SimulatorInfo {
         let devices = try fetchAllDevices()
         if let info = devices[nameOrUDID] { return info }  // exact UDID match
 
-        let matches = devices.values.filter { $0.name == nameOrUDID }.sorted(by: Self.preferredSourceOrder)
+        var named = devices.values.filter { $0.name == nameOrUDID }
+        if let runtime {
+            let runtimeID = runtimeIdentifier(runtime)
+            named = named.filter { $0.runtime == runtimeID }
+            guard !named.isEmpty else {
+                throw SimulatorServiceError.notFoundForRuntime(name: nameOrUDID, runtime: runtime)
+            }
+        }
+        let matches = named.sorted(by: Self.preferredSourceOrder)
         guard let first = matches.first else { throw SimulatorServiceError.notFound(nameOrUDID) }
         guard matches.count > 1, let bundleID else { return first }
 
@@ -326,5 +341,27 @@ enum SimulatorService {
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: ".", with: "-")
         return "com.apple.CoreSimulator.SimRuntime.\(sanitized)"
+    }
+
+    /// Map runtime identifiers to their friendly names (e.g.
+    /// `com.apple.CoreSimulator.SimRuntime.iOS-26-4` → "iOS 26.4") from the
+    /// installed runtimes list. Returns an empty map on failure.
+    static func runtimeNamesByIdentifier() -> [String: String] {
+        guard let output = try? ShellRunner.run("xcrun", "simctl", "list", "runtimes", "--json"),
+              let data = output.data(using: .utf8),
+              let list = try? JSONDecoder().decode(RuntimeList.self, from: data) else {
+            return [:]
+        }
+        var map: [String: String] = [:]
+        for runtime in list.runtimes { map[runtime.identifier] = runtime.name }
+        return map
+    }
+
+    private struct RuntimeList: Decodable {
+        let runtimes: [Runtime]
+        struct Runtime: Decodable {
+            let name: String
+            let identifier: String
+        }
     }
 }

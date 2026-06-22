@@ -19,6 +19,9 @@ enum AuthSyncService {
     /// can continue setting up a task.
     ///
     /// - Parameters:
+    ///   - sourceRuntime: when non-nil (a friendly form like "iOS 26.4") and
+    ///     `sourceID` is a name, narrow same-named source candidates to that
+    ///     runtime; resolution fails if none match.
     ///   - bundleID: when non-nil, also copy the app's persisted session
     ///     (cookies, URL-session storage, web data and `UserDefaults` suites).
     ///     Requires the app to be installed on both simulators.
@@ -29,6 +32,7 @@ enum AuthSyncService {
     @discardableResult
     static func sync(
         fromSource sourceID: String,
+        sourceRuntime: String? = nil,
         toTargetUDID targetUDID: String,
         bundleID: String?,
         includeKeychain: Bool,
@@ -36,7 +40,7 @@ enum AuthSyncService {
     ) -> AuthSyncResult {
         let source: SimulatorInfo
         do {
-            source = try SimulatorService.resolveAuthSource(sourceID, bundleID: bundleID)
+            source = try SimulatorService.resolveAuthSource(sourceID, runtime: sourceRuntime, bundleID: bundleID)
         } catch {
             warnFailure(error)
             return .failed

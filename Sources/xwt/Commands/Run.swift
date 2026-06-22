@@ -88,9 +88,10 @@ struct Run: ParsableCommand {
         // Copy auth (keychain + session cookies) on first install only — never
         // clobber an existing session. Use `xwt sync-auth` to force a re-sync.
         if !noCopyAuth, !SimulatorService.hasSession(udid: task.simulatorUDID, bundleID: bundleID),
-           let sourceID = resolveAuthSource(repo: repo, repoRoot: repoRoot, task: task) {
+           let source = resolveAuthSource(repo: repo, repoRoot: repoRoot, task: task) {
             AuthSyncService.sync(
-                fromSource: sourceID,
+                fromSource: source.id,
+                sourceRuntime: source.runtime,
                 toTargetUDID: task.simulatorUDID,
                 bundleID: bundleID,
                 includeKeychain: true,
@@ -113,14 +114,16 @@ struct Run: ParsableCommand {
 
     /// Resolve the source simulator to copy auth from, by priority:
     /// `--copy-auth-from` > parent task's simulator > `sourceSimulator` in `.xwt.json`.
-    private func resolveAuthSource(repo: String, repoRoot: String, task: TaskState) -> String? {
-        if let copyAuthFrom { return copyAuthFrom }
+    /// The optional runtime is the `.xwt.json` `sourceRuntime` and is carried only
+    /// on the config path, so it pins same-named sims by runtime.
+    private func resolveAuthSource(repo: String, repoRoot: String, task: TaskState) -> (id: String, runtime: String?)? {
+        if let copyAuthFrom { return (copyAuthFrom, nil) }
         if let parentSlug = task.parentSlug,
            let parent = try? StateManager.load(repo: repo, slug: parentSlug) {
-            return parent.simulatorUDID
+            return (parent.simulatorUDID, nil)
         }
-        if let config = try? RepoConfig.load(from: repoRoot) {
-            return config.sourceSimulator
+        if let config = try? RepoConfig.load(from: repoRoot), let source = config.sourceSimulator {
+            return (source, config.sourceRuntime)
         }
         return nil
     }

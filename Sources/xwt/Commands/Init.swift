@@ -341,17 +341,27 @@ struct Init: ParsableCommand {
         var config = config
 
         let devices = try SimulatorService.fetchAllDevices()
+        let runtimeNames = SimulatorService.runtimeNamesByIdentifier()
         let sorted = devices.values
             .filter { !$0.name.hasPrefix("xwt-") }
             .sorted { $0.name < $1.name }
 
-        let names = sorted.map {
-            "\($0.name) — \($0.udid.prefix(8))… (\($0.isBooted ? "Booted" : "Shutdown"))"
+        let names = sorted.map { device -> String in
+            let state = device.isBooted ? "Booted" : "Shutdown"
+            if let runtime = runtimeNames[device.runtime] {
+                return "\(device.name) — \(runtime) — \(device.udid.prefix(8))… (\(state))"
+            }
+            return "\(device.name) — \(device.udid.prefix(8))… (\(state))"
         }
-        let simNames = sorted.map(\.name)
 
         let defaultIndex = config.sourceSimulator.flatMap { src in
-            sorted.firstIndex { $0.name == src || $0.udid == src }
+            sorted.firstIndex { device in
+                guard device.name == src || device.udid == src else { return false }
+                if let wantRuntime = config.sourceRuntime {
+                    return runtimeNames[device.runtime] == wantRuntime
+                }
+                return true
+            }
         }
 
         let selected = Prompt.choose(
@@ -362,9 +372,11 @@ struct Init: ParsableCommand {
         )
 
         if let selected, let idx = names.firstIndex(of: selected) {
-            config.sourceSimulator = simNames[idx]
+            config.sourceSimulator = sorted[idx].name
+            config.sourceRuntime = runtimeNames[sorted[idx].runtime]
         } else {
             config.sourceSimulator = nil
+            config.sourceRuntime = nil
         }
 
         Terminal.out()
@@ -587,6 +599,7 @@ struct Init: ParsableCommand {
         if let d = config.deviceType       { rows.append(("deviceType",       d)) }
         if let r = config.runtime          { rows.append(("runtime",          r)) }
         if let s = config.sourceSimulator  { rows.append(("sourceSimulator",  s)) }
+        if let sr = config.sourceRuntime   { rows.append(("sourceRuntime",    sr)) }
         if let w = config.worktreeDir      { rows.append(("worktreeDir",      w)) }
         let agentNames = (config.agents ?? ["copilot", "claude-code"])
             .map { $0 == "copilot" ? "Copilot CLI" : "Claude Code" }

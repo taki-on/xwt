@@ -117,12 +117,20 @@ struct Start: ParsableCommand {
                 // 3. Copy keychain (priority: --copy-auth-from > parent's simulator > sourceSimulator).
                 //    Session cookies are copied later by `xwt run` once the app is installed.
                 if !noCopyAuth {
-                    let sourceID = copyAuthFrom
-                        ?? resolvedBase?.parentTask?.simulatorUDID
-                        ?? config.sourceSimulator
-                    if let sourceID = sourceID {
+                    let source: (id: String, runtime: String?)?
+                    if let copyAuthFrom {
+                        source = (copyAuthFrom, nil)
+                    } else if let parentUDID = resolvedBase?.parentTask?.simulatorUDID {
+                        source = (parentUDID, nil)
+                    } else if let configSource = config.sourceSimulator {
+                        source = (configSource, config.sourceRuntime)
+                    } else {
+                        source = nil
+                    }
+                    if let source = source {
                         AuthSyncService.sync(
-                            fromSource: sourceID,
+                            fromSource: source.id,
+                            sourceRuntime: source.runtime,
                             toTargetUDID: udid,
                             bundleID: nil,
                             includeKeychain: true,

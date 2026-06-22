@@ -283,7 +283,7 @@ Create a `.xwt.json` file in your repository root to set project defaults:
 }
 ```
 
-Supported fields: `workspace`, `project`, `package`, `scheme`, `deviceType`, `runtime`, `sourceSimulator`, `worktreeDir`.
+Supported fields: `workspace`, `project`, `package`, `scheme`, `deviceType`, `runtime`, `sourceSimulator`, `sourceRuntime`, `worktreeDir`.
 
 `workspace`, `project`, and `package` are mutually exclusive. Use `package` for Swift Package repositories (typically `"Package.swift"`); `xwt run` invokes `xcodebuild` from the worktree root with no `-workspace` / `-project` flag, letting `xcodebuild` discover the package automatically.
 
@@ -304,9 +304,17 @@ To skip re-authentication, set `sourceSimulator` in your `.xwt.json` to the name
 {
   "workspace": "MyApp.xcworkspace",
   "scheme": "MyApp",
-  "sourceSimulator": "iPhone 17 Pro"
+  "sourceSimulator": "iPhone 17 Pro",
+  "sourceRuntime": "iOS 26.4"
 }
 ```
+
+When several simulators share the same name across different iOS runtimes, add
+`sourceRuntime` (e.g. `"iOS 26.4"`) to pin which one to copy from. It applies
+only when the source is resolved from `sourceSimulator`; if no simulator matches
+both the name and the runtime, the copy fails rather than falling back to a
+different runtime. (Pass a UDID to `--copy-auth-from` for the same precision on
+the command line.)
 
 How the copy happens:
 

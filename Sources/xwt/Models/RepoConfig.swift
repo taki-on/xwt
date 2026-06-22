@@ -9,6 +9,7 @@ struct RepoConfig: Codable {
     var deviceType: String?
     var runtime: String?
     var sourceSimulator: String?
+    var sourceRuntime: String?
     var worktreeDir: String?
     var agents: [String]?
 
