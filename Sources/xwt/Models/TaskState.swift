@@ -77,7 +77,9 @@ struct TaskState: Codable {
             "",
             "Always target the assigned simulator by its UDID so parallel worktrees remain isolated.",
             "Use the DerivedData path above whenever an Xcode MCP tool accepts a custom path.",
-            "For builds that must use XWT's isolated DerivedData, run `xwt run \(branch) --build-only`.",
+            "Use `xwt run \(branch)` to build, install, and launch the app.",
+            "Do not use Xcode `RunProject` because it opens a compact Device Hub window.",
+            "Do not open Simulator.app. View the assigned simulator in the existing full Device Hub window.",
         ]
 
         return lines

@@ -1,1 +1,1 @@
-let xwtVersion = "22"
+let xwtVersion = "23"
